@@ -44,7 +44,7 @@ db_ctx_t* g_db_ctx;	// database context
 
 static bool init_database(void);
 
-static bool create_audio_list_info(const char* filename, const char* uuid);
+static bool create_audio_list_info(const char* context, const char* filename, const char* uuid);
 static bool create_audio_fingerprint_info(const char* filename, const char* uuid);
 static json_t* create_audio_fingerprints(const char* filename, const char* uuid);
 
@@ -143,12 +143,12 @@ bool fp_delete_audio_list_info(const char* uuid)
 	return true;
 }
 
-bool fp_craete_audio_list_info(const char* filename)
+bool fp_craete_audio_list_info(const char* context, const char* filename)
 {
 	int ret;
 	char* uuid;
 
-	if(filename == NULL) {
+	if((context == NULL) || (filename == NULL)) {
 		ast_log(LOG_WARNING, "Wrong input parameter.");
 		return false;
 	}
@@ -157,7 +157,7 @@ bool fp_craete_audio_list_info(const char* filename)
 	uuid = generate_uuid();
 
 	// create audio list info
-	ret = create_audio_list_info(filename, uuid);
+	ret = create_audio_list_info(context, filename, uuid);
 	if(ret == false) {
 		ast_log(LOG_NOTICE, "Could not create audio list info. May already exist.");
 		sfree(uuid);
@@ -371,7 +371,7 @@ json_t* fp_get_audio_lists_by_contextname(const char* name)
  * @param uuid
  * @return
  */
-static bool create_audio_list_info(const char* filename, const char* uuid)
+static bool create_audio_list_info(const char* context, const char* filename, const char* uuid)
 {
 	int ret;
 	char* hash;
@@ -379,11 +379,11 @@ static bool create_audio_list_info(const char* filename, const char* uuid)
 	const char* name;
 	json_t* j_tmp;
 
-	if((filename == NULL) || (uuid == NULL)) {
+	if((context == NULL) || (filename == NULL) || (uuid == NULL)) {
 		ast_log(LOG_WARNING, "Wrong input parameter.");
 		return false;
 	}
-	ast_log(LOG_DEBUG, "Fired create_audio_list_info. filename[%s], uuid[%s]", filename, uuid);
+	ast_log(LOG_DEBUG, "Fired create_audio_list_info. context[%s], filename[%s], uuid[%s]", context, filename, uuid);
 
 	// create file hash
 	hash = create_file_hash(filename);
@@ -405,9 +405,10 @@ static bool create_audio_list_info(const char* filename, const char* uuid)
 	tmp = strdup(filename);
 	name = basename(tmp);
 	sfree(tmp);
-	j_tmp = json_pack("{s:s, s:s, s:s}",
+	j_tmp = json_pack("{s:s, s:s, s:s, s:s}",
 			"uuid", 	uuid,
 			"name",		name,
+			"context",	context,
 			"hash",		hash
 			);
 	sfree(hash);
@@ -574,7 +575,6 @@ static bool init_database(void)
 	/* context_list */
 	sql = "create table context_list("
 
-			"   uuid        varchar(255),"
 			"   name        varchar(255)"
 			");";
 	ret = db_ctx_exec(g_db_ctx, sql);
@@ -588,8 +588,7 @@ static bool init_database(void)
 
 			"   uuid           varchar(255),"
 			"   name           varchar(255),"
-			"   context_name   varchar(255),"	// context name
-			"   context_uuid   varchar(255),"	// context uuid
+			"   context        varchar(255),"	// context name
 			"	hash           varchar(1023)"
 			");";
 	ret = db_ctx_exec(g_db_ctx, sql);
@@ -813,7 +812,7 @@ json_t* fp_get_context_list_info(const char* name)
 		return NULL;
 	}
 
-	asprintf(&sql, "select * from context_list where name = '%s';", name);
+	asprintf(&sql, "select * from context_list where name == '%s';", name);
 	db_ctx_query(g_db_ctx, sql);
 	sfree(sql);
 

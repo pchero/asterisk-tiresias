@@ -28,6 +28,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <jansson.h>
+#include <dirent.h>
 
 #include "app_tiresias.h"
 #include "db_ctx_handler.h"
@@ -37,6 +38,8 @@
 
 #define DEF_LIB_DIR	"/var/lib/asterisk/third-party/tiresias"
 
+#define DEF_CONFNAME			"app_tiresias.conf"
+
 #define DEF_CONF_GLOBAL			"global"
 
 #define sfree(p) { if(p != NULL) ast_free(p); p=NULL; }
@@ -44,11 +47,14 @@
 app* g_app = NULL;
 
 static bool init(void);
-static bool load_config(void);
+static bool init_libdirectory(void);
+static bool init_config(void);
 static bool init_context(void);
+static bool init_audio(void);
 
 static bool term(void);
 
+static int file_select(const struct dirent *entry);
 
 
 static bool init(void)
@@ -62,17 +68,17 @@ static bool init(void)
 	g_app = ast_calloc(1, sizeof(app));
 	g_app->j_conf = NULL;
 
-	/* create default lib directory */
-	ret = mkdir(DEF_LIB_DIR, 0755);
-	if(ret != 0) {
-		ast_log(LOG_ERROR, "Could not create lib directory. dir[%s], err[%d:%s]\n", DEF_LIB_DIR, errno, strerror(errno));
+	/* initiate lib directory */
+	ret = init_libdirectory();
+	if(ret != true) {
+		ast_log(LOG_ERROR, "Could not initiate libdirectory.\n");
 		return false;
 	}
 
-	/* load configuration */
-	ret = load_config();
+	/* initiate configuration */
+	ret = init_config();
 	if(ret == false) {
-		ast_log(LOG_ERROR, "Could not load configuration options.\n");
+		ast_log(LOG_ERROR, "Could not initiate configuration options.\n");
 		return false;
 	}
 
@@ -86,6 +92,12 @@ static bool init(void)
 	ret = init_context();
 	if(ret == false) {
 		ast_log(LOG_ERROR, "Could not initiate context_list.");
+		return false;
+	}
+
+	ret = init_audio();
+	if(ret == false) {
+		ast_log(LOG_ERROR, "Could not initiate audio_list.\n");
 		return false;
 	}
 
@@ -108,11 +120,33 @@ static bool term(void)
 	return true;
 }
 
+static bool init_libdirectory(void)
+{
+	int ret;
+	DIR* dir;
+
+	dir = opendir(DEF_LIB_DIR);
+	if(dir != NULL) {
+		/* already created */
+		closedir(dir);
+		return true;
+	}
+
+	/* create directory */
+	ret = mkdir(DEF_LIB_DIR, 0755);
+	if(ret != 0) {
+		ast_log(LOG_ERROR, "Could not create lib directory. dir[%s], err[%d:%s]\n", DEF_LIB_DIR, errno, strerror(errno));
+		return false;
+	}
+
+	return true;
+}
+
 /*!
  * \brief Load res_snmp.conf config file
  * \return true on load, false file does not exist
 */
-static bool load_config(void)
+static bool init_config(void)
 {
 	struct ast_variable *var;
 	struct ast_config *cfg;
@@ -123,9 +157,9 @@ static bool load_config(void)
 
 	j_conf = json_object();
 
-	cfg = ast_config_load("app_tiresias.conf", config_flags);
+	cfg = ast_config_load(DEF_CONFNAME, config_flags);
 	if (cfg == CONFIG_STATUS_FILEMISSING || cfg == CONFIG_STATUS_FILEINVALID) {
-		ast_log(LOG_WARNING, "Could not load res_outbound.conf.\n");
+		ast_log(LOG_WARNING, "Could not load conf file. name[%s]\n", DEF_CONFNAME);
 		return false;
 	}
 
@@ -211,6 +245,7 @@ static bool init_context(void)
 		if(tmp == NULL) {
 			continue;
 		}
+		ast_log(LOG_DEBUG, "Checking context info. context[%s]\n", tmp);
 
 		/* if global context, just continue */
 		ret = strcmp(tmp, DEF_CONF_GLOBAL);
@@ -231,6 +266,72 @@ static bool init_context(void)
 	}
 
 	return true;
+}
+
+/**
+ * Init audio_list info.
+ * @return
+ */
+static bool init_audio(void)
+{
+	int ret;
+	int i;
+	int count;
+    struct dirent **namelist;
+    char* tmp;
+	const char* directory;
+	const char* section;
+	json_t* j_section;
+
+	json_object_foreach(g_app->j_conf, section, j_section) {
+		directory = json_string_value(json_object_get(j_section, "directory"));
+		if(directory == NULL) {
+			ast_log(LOG_NOTICE, "Could not get directory info.\n");
+			continue;
+		}
+
+		count = scandir(directory, &namelist, file_select, alphasort);
+		for(i = 0; i < count; i++) {
+
+			if(namelist[i]->d_name == NULL) {
+				continue;
+			}
+
+			asprintf(&tmp, "%s/%s", directory, namelist[i]->d_name);
+
+			/* create audio_list info */
+			ret = fp_craete_audio_list_info(section, tmp);
+			sfree(namelist[i]);
+			sfree(tmp);
+			if(ret == false) {
+				continue;
+			}
+		}
+		sfree(namelist);
+	}
+
+	return true;
+}
+
+static int file_select(const struct dirent *entry)
+{
+	int ret;
+
+	if((entry == NULL) || (entry->d_name == NULL)) {
+		return 0;
+	}
+
+	ret = strcmp(entry->d_name, ".");
+	if(ret == 0) {
+		return 0;
+	}
+
+	ret = strcmp(entry->d_name, "..");
+	if(ret == 0) {
+		return 0;
+	}
+
+	return 1;
 }
 
 
