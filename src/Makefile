@@ -19,7 +19,8 @@ TARGET = app_tiresias.so
 CFLAGS += \
 	-I/usr/include/ \
 	-I/usr/local/include/
-	
+
+LFLGAS += -shared
 LDLIBS = $(OSLDLIBS) -laubio -lm -lcrypto
 
 OBJECTS = $(patsubst %.c, %.o, $(wildcard *.c))
@@ -52,8 +53,6 @@ clean:
 install:
 	mv $(BUILD)/app_tiresias.so /usr/lib/asterisk/modules/
 
-
-
 all: default
 
 # Create the build directory (if needed)
@@ -61,8 +60,7 @@ $(BUILD):
 	mkdir -p $(BUILD)
 
 $(TARGET): $(OBJECTS)
-	$(CC) $(OBJECTS) -Wall $(LIBS) -o $@
-
+	$(CC) $(LFLGAS) $(BUILD)/*.o -Wall $(LDLIBS) -o $(BUILD)/$(TARGET)
 
 # Enable dependency checking
 #.KEEP_STATE:

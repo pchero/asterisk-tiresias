@@ -13,82 +13,224 @@
 
 #include <asterisk.h>
 #include <asterisk/module.h>
+#include <asterisk/logger.h>
 #include <asterisk/cli.h>
 #include <asterisk/utils.h>
 #include <asterisk/manager.h>
 #include <asterisk/config.h>
 #include <asterisk/channel.h>
 #include <asterisk/ast_version.h>
-#include <asterisk/json.h>
 
 #include <stdbool.h>
+#include <aubio/aubio.h>
+#include <errno.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <jansson.h>
+
+#include "app_tiresias.h"
+#include "db_ctx_handler.h"
+#include "fp_handler.h"
 
 #define DEF_MODULE_NAME	"app_tiresias"
 
-static PyObject* g_pymod_json;
-static PyObject* g_pymod_dejavu;
-static PyObject* g_pymod_dejavu_recog;
+#define DEF_LIB_DIR	"/var/lib/asterisk/third-party/tiresias"
 
-static bool init_python(void);
-static bool term_python(void);
+#define DEF_CONF_GLOBAL			"global"
+
+#define sfree(p) { if(p != NULL) ast_free(p); p=NULL; }
+
+app* g_app = NULL;
+
+static bool init(void);
+static bool load_config(void);
+static bool init_context(void);
+
+static bool term(void);
 
 
-/**
- * Initiate python module
- * @return
- */
-static bool init_python(void)
+
+static bool init(void)
 {
-//	putenv("PYTHONPATH=$PYTHONPATH:/usr/local/lib/python2.7/dist-packages");
+	int ret;
 
-	// initiate python
-	Py_Initialize();
+	if(g_app != NULL) {
+		json_decref(g_app->j_conf);
+		ast_free(g_app);
+	}
+	g_app = ast_calloc(1, sizeof(app));
+	g_app->j_conf = NULL;
 
-	// import json
-  g_pymod_json = PyImport_ImportModule("json");
-  if(g_pymod_json == NULL) {
-  	ast_log(LOG_ERROR, "Could not import module. json\n");
-    return false;
-  }
+	/* create default lib directory */
+	ret = mkdir(DEF_LIB_DIR, 0755);
+	if(ret != 0) {
+		ast_log(LOG_ERROR, "Could not create lib directory. dir[%s], err[%d:%s]\n", DEF_LIB_DIR, errno, strerror(errno));
+		return false;
+	}
 
+	/* load configuration */
+	ret = load_config();
+	if(ret == false) {
+		ast_log(LOG_ERROR, "Could not load configuration options.\n");
+		return false;
+	}
 
-  // import dejavu
-  g_pymod_dejavu = PyImport_ImportModule("dejavu");
-  if(g_pymod_dejavu == NULL) {
-  	ast_log(LOG_ERROR, "Could not import module. dejavu\n");
-    return false;
-  }
+	/* initiate fp_handler */
+	ret = fp_init();
+	if(ret == false) {
+		ast_log(LOG_ERROR, "Could not initiate fp_handler.\n");
+		return false;
+	}
 
-  // import dejavu.recognize
-  g_pymod_dejavu_recog = PyImport_ImportModule("dejavu.recognize");
-  if(g_pymod_dejavu_recog == NULL) {
-  	ast_log(LOG_ERROR, "Could not import module. dejavu.recognize\n");
-    return false;
-  }
+	ret = init_context();
+	if(ret == false) {
+		ast_log(LOG_ERROR, "Could not initiate context_list.");
+		return false;
+	}
 
-  return true;
+	return true;
+}
+
+static bool term(void)
+{
+	int ret;
+
+	ret = fp_term();
+	if(ret == false) {
+		/* just write the notice log only. */
+		ast_log(LOG_NOTICE, "Could not terminate database.\n");
+	}
+
+	json_decref(g_app->j_conf);
+	sfree(g_app);
+
+	return true;
+}
+
+/*!
+ * \brief Load res_snmp.conf config file
+ * \return true on load, false file does not exist
+*/
+static bool load_config(void)
+{
+	struct ast_variable *var;
+	struct ast_config *cfg;
+	json_t* j_tmp;
+	json_t* j_conf;
+	struct ast_flags config_flags = { 0 };
+	char *cat;
+
+	j_conf = json_object();
+
+	cfg = ast_config_load("app_tiresias.conf", config_flags);
+	if (cfg == CONFIG_STATUS_FILEMISSING || cfg == CONFIG_STATUS_FILEINVALID) {
+		ast_log(LOG_WARNING, "Could not load res_outbound.conf.\n");
+		return false;
+	}
+
+	cat = NULL;
+	while(1) {
+		cat = ast_category_browse(cfg, cat);
+		if(cat == NULL) {
+			break;
+		}
+
+		if(json_object_get(j_conf, cat) == NULL) {
+			json_object_set_new(j_conf, cat, json_object());
+		}
+		j_tmp = json_object_get(j_conf, cat);
+
+		var = ast_variable_browse(cfg, cat);
+		while(1) {
+			if(var == NULL) {
+				break;
+			}
+			json_object_set_new(j_tmp, var->name, json_string(var->value));
+			ast_log(LOG_VERBOSE, "Loading conf. name[%s], value[%s]\n", var->name, var->value);
+			var = var->next;
+		}
+	}
+	ast_config_destroy(cfg);
+
+	if(g_app->j_conf != NULL) {
+		json_decref(g_app->j_conf);
+	}
+	g_app->j_conf = j_conf;
+
+	return true;
 }
 
 /**
- * Terminate python module.
+ * Initiate data by configuration settings.
+ * @return
  */
-static bool term_python(void)
+static bool init_context(void)
 {
-//	if(g_pymod_dejavu != NULL) {
-//		Py_DECREF(g_pymod_dejavu);
-//	}
-//
-//	if(g_pymod_dejavu_recog != NULL) {
-//		Py_DECREF(g_pymod_dejavu_recog);
-//	}
-//
-//	if(g_pymod_json != NULL) {
-//		Py_DECREF(g_pymod_json);
-//	}
+	int ret;
+	char* tmp;
+	const char* tmp_const;
+	int idx;
+	json_t* j_contexts;
+	json_t* j_context;
+	json_t* j_tmp;
 
-  Py_Finalize();
+	/* validate contexts */
+	j_contexts = fp_get_context_lists_all();
+	if(j_contexts == NULL) {
+		ast_log(LOG_ERROR, "Could not get contexts info.\n");
+		return false;
+	}
 
-  return true;
+	/* verify the context */
+	json_array_foreach(j_contexts, idx, j_context) {
+		tmp_const = json_string_value(json_object_get(j_context, "name"));
+		if(tmp_const == NULL) {
+			ast_log(LOG_WARNING, "Could not get context name info.\n");
+			continue;
+		}
+
+		j_tmp = json_object_get(g_app->j_conf, tmp_const);
+		if(j_tmp != NULL) {
+			continue;
+		}
+
+		/* given context has been deleted already from the configuration. */
+		ret = fp_delete_context_list_info(tmp_const);
+		if(ret == false) {
+			ast_log(LOG_ERROR, "Could not delete context_list info correctly. context[%s]\n", tmp_const);
+			continue;
+		}
+
+		ast_log(LOG_NOTICE, "Delete context_list info. name[%s]\n", tmp_const);
+	}
+	json_decref(j_contexts);
+
+	/* create context if not exist */
+	json_object_foreach(g_app->j_conf, tmp, j_tmp) {
+		if(tmp == NULL) {
+			continue;
+		}
+
+		/* if global context, just continue */
+		ret = strcmp(tmp, DEF_CONF_GLOBAL);
+		if(ret == 0) {
+			continue;
+		}
+
+		j_context = fp_get_context_list_info(tmp);
+		if(j_context != NULL) {
+			continue;
+		}
+
+		ret = fp_create_context_list_info(tmp);
+		if(ret == false) {
+			ast_log(LOG_ERROR, "Could not create context_list info. name[%s]\n", tmp);
+			continue;
+		}
+	}
+
+	return true;
 }
 
 
@@ -102,9 +244,9 @@ static int load_module(void)
 
 	ast_log(LOG_NOTICE, "Load %s.\n", DEF_MODULE_NAME);
 
-	ret = init_python();
+	ret = init();
 	if(ret == false) {
-		ast_log(LOG_ERROR, "Could not initiate python.\n");
+		ast_log(LOG_ERROR, "Could not initiate the module.\n");
 		return AST_MODULE_LOAD_DECLINE;
 	}
 
@@ -117,9 +259,9 @@ static int unload_module(void)
 
 	ast_log(LOG_NOTICE, "Unload %s.\n", DEF_MODULE_NAME);
 
-	ret = term_python();
+	ret = term();
 	if(ret == false) {
-		ast_log(LOG_NOTICE, "Could not terminate python.\n");
+		ast_log(LOG_NOTICE, "Could not terminate the module correctly.\n");
 	}
 
 	return 0;
@@ -127,13 +269,13 @@ static int unload_module(void)
 
 static int reload_module(void)
 {
-	ast_log(LOG_NOTICE, "%s doesn't support reload. Please do unload/load manualy.\n",
+	ast_log(LOG_NOTICE, "%s doesn't support reload. Please do unload/load manually.\n",
 			DEF_MODULE_NAME
 			);
 	return AST_MODULE_RELOAD_SUCCESS;
 }
 
-AST_MODULE_INFO(ASTERISK_GPL_KEY, AST_MODFLAG_LOAD_ORDER, "Voicefingerprint",
+AST_MODULE_INFO(ASTERISK_GPL_KEY, AST_MODFLAG_LOAD_ORDER, "Tiresias",
 		.load = load_module,
 		.unload = unload_module,
 		.reload = reload_module,
