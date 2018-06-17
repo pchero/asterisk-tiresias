@@ -58,24 +58,29 @@ static bool delete_context_list_info(const char* name);
 static bool create_temp_search_table(const char* tablename);
 static bool delete_temp_search_table(const char* tablename);
 
-static char* generate_uuid(void);
 static char* replace_string_char(const char* str, const char org, const char target);
+
+static db_ctx_t* create_db_ctx(void);
+static void destroy_db_ctx(db_ctx_t* db_ctx);
 
 bool fp_init(void)
 {
 	int ret;
+	db_ctx_t* db_ctx;
 
 	/* initiate database */
 	ret = init_database();
 	if(ret == false) {
-		ast_log(LOG_ERROR, "Could not initiate database.");
+		ast_log(LOG_ERROR, "Could not initiate database.\n");
 		return false;
 	}
 
 	// load the saved data into memory
-	ret = db_ctx_load_db_data(g_db_ctx, DEF_BACKUP_DATABASE);
+	db_ctx = create_db_ctx();
+	ret = db_ctx_load_db_data(db_ctx, DEF_BACKUP_DATABASE);
+	destroy_db_ctx(db_ctx);
 	if(ret == false) {
-		ast_log(LOG_ERROR, "Could not load the database data.");
+		ast_log(LOG_ERROR, "Could not load the database data.\n");
 		return false;
 	}
 
@@ -85,10 +90,13 @@ bool fp_init(void)
 bool fp_term(void)
 {
 	int ret;
+	db_ctx_t* db_ctx;
 
-	ret = db_ctx_backup(g_db_ctx, DEF_BACKUP_DATABASE);
+	db_ctx = create_db_ctx();
+	ret = db_ctx_backup(db_ctx, DEF_BACKUP_DATABASE);
+	destroy_db_ctx(db_ctx);
 	if(ret == false) {
-		ast_log(LOG_ERROR, "Could not write database.");
+		ast_log(LOG_ERROR, "Could not write database.\n");
 		return false;
 	}
 
@@ -107,35 +115,40 @@ bool fp_delete_audio_list_info(const char* uuid)
 	int ret;
 	json_t* j_tmp;
 	char* sql;
+	db_ctx_t* db_ctx;
 
 	if(uuid == NULL) {
-		ast_log(LOG_WARNING, "Wrong input parameter.");
+		ast_log(LOG_WARNING, "Wrong input parameter.\n");
 		return false;
 	}
 
 	// get audio list info
 	j_tmp = get_audio_list_info(uuid);
 	if(j_tmp == NULL) {
-		ast_log(LOG_NOTICE, "Could not find audio list info.");
+		ast_log(LOG_NOTICE, "Could not find audio list info.\n");
 		return false;
 	}
 
 	// delete audio list info
 	asprintf(&sql, "delete from audio_list where uuid='%s';", uuid);
-	ret = db_ctx_exec(g_db_ctx, sql);
+	db_ctx = create_db_ctx();
+	ret = db_ctx_exec(db_ctx, sql);
+	destroy_db_ctx(db_ctx);
 	sfree(sql);
 	if(ret == false) {
-		ast_log(LOG_WARNING, "Could not delete audio list info. uuid[%s]", uuid);
+		ast_log(LOG_WARNING, "Could not delete audio list info. uuid[%s]\n", uuid);
 		json_decref(j_tmp);
 		return false;
 	}
 
 	// delete related audio fingerprint info
 	asprintf(&sql, "delete from audio_fingerprint where uuid='%s';", uuid);
-	ret = db_ctx_exec(g_db_ctx, sql);
+	db_ctx = create_db_ctx();
+	ret = db_ctx_exec(db_ctx, sql);
+	destroy_db_ctx(db_ctx);
 	sfree(sql);
 	if(ret == false) {
-		ast_log(LOG_WARNING, "Could not delete audio fingerprint info. uuid[%s]", uuid);
+		ast_log(LOG_WARNING, "Could not delete audio fingerprint info. uuid[%s]\n", uuid);
 		json_decref(j_tmp);
 		return false;
 	}
@@ -149,17 +162,17 @@ bool fp_craete_audio_list_info(const char* context, const char* filename)
 	char* uuid;
 
 	if((context == NULL) || (filename == NULL)) {
-		ast_log(LOG_WARNING, "Wrong input parameter.");
+		ast_log(LOG_WARNING, "Wrong input parameter.\n");
 		return false;
 	}
 
 	// create uuid
-	uuid = generate_uuid();
+	uuid = fp_generate_uuid();
 
 	// create audio list info
 	ret = create_audio_list_info(context, filename, uuid);
 	if(ret == false) {
-		ast_log(LOG_NOTICE, "Could not create audio list info. May already exist.");
+		ast_log(LOG_NOTICE, "Could not create audio list info. May already exist.\n");
 		sfree(uuid);
 		return false;
 	}
@@ -167,7 +180,7 @@ bool fp_craete_audio_list_info(const char* context, const char* filename)
 	// create audio fingerprint info
 	ret = create_audio_fingerprint_info(filename, uuid);
 	if(ret == false) {
-		ast_log(LOG_NOTICE, "Could not create audio fingerprint info.");
+		ast_log(LOG_NOTICE, "Could not create audio fingerprint info.\n");
 
 		fp_delete_audio_list_info(filename);
 		sfree(uuid);
@@ -177,7 +190,7 @@ bool fp_craete_audio_list_info(const char* context, const char* filename)
 	return true;
 }
 
-json_t* fp_search_fingerprint_info(const char* filename, const int coefs)
+json_t* fp_search_fingerprint_info(const char* context, const char* filename, const int coefs)
 {
 	int ret;
 	char* uuid;
@@ -192,19 +205,20 @@ json_t* fp_search_fingerprint_info(const char* filename, const int coefs)
 	int idx;
 	int frame_count;
 	int i;
+	db_ctx_t* db_ctx;
 
-	if(filename == NULL) {
-		ast_log(LOG_WARNING, "Wrong input parameter.");
+	if((context == NULL) || (filename == NULL)) {
+		ast_log(LOG_WARNING, "Wrong input parameter.\n");
 		return NULL;
 	}
-	ast_log(LOG_DEBUG, "Fired fp_search_fingerprint_info. filename[%s]", filename);
+	ast_log(LOG_DEBUG, "Fired fp_search_fingerprint_info. context[%s], filename[%s]\n", context, filename);
 
 	if((coefs < 1) || (coefs > DEF_AUBIO_COEFS)) {
-		ast_log(LOG_WARNING, "Wrong coefs count. max[%d], coefs[%d]", DEF_AUBIO_COEFS, coefs);
+		ast_log(LOG_WARNING, "Wrong coefs count. max[%d], coefs[%d]\n", DEF_AUBIO_COEFS, coefs);
 		return NULL;
 	}
 
-	uuid = generate_uuid();
+	uuid = fp_generate_uuid();
 
 	// create tablename
 	tmp = replace_string_char(uuid, '-', '_');
@@ -214,7 +228,7 @@ json_t* fp_search_fingerprint_info(const char* filename, const int coefs)
 	// create tmp search table
 	ret = create_temp_search_table(tablename);
 	if(ret == false) {
-		ast_log(LOG_WARNING, "Could not create temp search table. tablename[%s]", tablename);
+		ast_log(LOG_WARNING, "Could not create temp search table. tablename[%s]\n", tablename);
 		sfree(tablename);
 		sfree(uuid);
 		return NULL;
@@ -224,7 +238,7 @@ json_t* fp_search_fingerprint_info(const char* filename, const int coefs)
 	j_fprints = create_audio_fingerprints(filename, uuid);
 	sfree(uuid);
 	if(j_fprints == NULL) {
-		ast_log(LOG_ERROR, "Could not create fingerprint info.");
+		ast_log(LOG_ERROR, "Could not create fingerprint info.\n");
 		delete_temp_search_table(tablename);
 		sfree(tablename);
 		return NULL;
@@ -234,8 +248,11 @@ json_t* fp_search_fingerprint_info(const char* filename, const int coefs)
 	frame_count = json_array_size(j_fprints);
 	json_array_foreach(j_fprints, idx, j_tmp) {
 		asprintf(&sql, "insert into %s select * from audio_fingerprint where "
-				"max1 >= %f and max1 <= %f",
+				" context = '%s' "
+				" and max1 >= %f "
+				" and max1 <= %f ",
 				tablename,
+				context,
 				json_real_value(json_object_get(j_tmp, "max1")) - DEF_SEARCH_TOLERANCE,
 				json_real_value(json_object_get(j_tmp, "max1")) + DEF_SEARCH_TOLERANCE
 				);
@@ -269,16 +286,17 @@ json_t* fp_search_fingerprint_info(const char* filename, const int coefs)
 
 	// get result
 	asprintf(&sql, "select *, count(*) from %s group by audio_uuid order by count(*) DESC", tablename);
-	db_ctx_query(g_db_ctx, sql);
+	db_ctx = create_db_ctx();
+	db_ctx_query(db_ctx, sql);
 	sfree(sql);
 
-	j_search = db_ctx_get_record(g_db_ctx);
-	db_ctx_free(g_db_ctx);
+	j_search = db_ctx_get_record(db_ctx);
+	destroy_db_ctx(db_ctx);
 
 	// delete temp search table
 	ret = delete_temp_search_table(tablename);
 	if(ret == false) {
-		ast_log(LOG_WARNING, "Could not delete temp search table. tablename[%s]", tablename);
+		ast_log(LOG_WARNING, "Could not delete temp search table. tablename[%s]\n", tablename);
 		sfree(tablename);
 		json_decref(j_search);
 		return false;
@@ -287,14 +305,14 @@ json_t* fp_search_fingerprint_info(const char* filename, const int coefs)
 
 	if(j_search == NULL) {
 		// not found
-		ast_log(LOG_NOTICE, "Could not find data.");
+		ast_log(LOG_NOTICE, "Could not find data.\n");
 		return NULL;
 	}
 
 	// create result
 	j_res = get_audio_list_info(json_string_value(json_object_get(j_search, "audio_uuid")));
 	if(j_res == NULL) {
-		ast_log(LOG_WARNING, "Could not find audio list info.");
+		ast_log(LOG_WARNING, "Could not find audio list info.\n");
 		json_decref(j_search);
 		return NULL;
 	}
@@ -315,22 +333,24 @@ json_t* fp_get_audio_lists_all(void)
 	char* sql;
 	json_t* j_res;
 	json_t* j_tmp;
+	db_ctx_t* db_ctx;
 
 	// get result
 	asprintf(&sql, "select * from audio_list;");
-	db_ctx_query(g_db_ctx, sql);
+	db_ctx = create_db_ctx();
+	db_ctx_query(db_ctx, sql);
 	sfree(sql);
 
 	j_res = json_array();
 	while(1) {
-		j_tmp = db_ctx_get_record(g_db_ctx);
+		j_tmp = db_ctx_get_record(db_ctx);
 		if(j_tmp == NULL) {
 			break;
 		}
 
 		json_array_append_new(j_res, j_tmp);
 	}
-	db_ctx_free(g_db_ctx);
+	destroy_db_ctx(db_ctx);
 
 	return j_res;
 }
@@ -340,26 +360,28 @@ json_t* fp_get_audio_lists_by_contextname(const char* name)
 	json_t* j_res;
 	json_t* j_tmp;
 	char* sql;
+	db_ctx_t* db_ctx;
 
 	if(name == NULL) {
 		ast_log(LOG_WARNING, "Wrong input parameter.\n");
 		return NULL;
 	}
 
-	asprintf(&sql, "select * from audio_list where context_name = '%s';", name);
-	db_ctx_query(g_db_ctx, sql);
+	asprintf(&sql, "select * from audio_list where context = '%s';", name);
+	db_ctx = create_db_ctx();
+	db_ctx_query(db_ctx, sql);
 	sfree(sql);
 
 	j_res = json_array();
 	while(1) {
-		j_tmp = db_ctx_get_record(g_db_ctx);
+		j_tmp = db_ctx_get_record(db_ctx);
 		if(j_tmp == NULL) {
 			break;
 		}
 
 		json_array_append_new(j_res, j_tmp);
 	}
-	db_ctx_free(g_db_ctx);
+	destroy_db_ctx(db_ctx);
 
 	return j_res;
 }
@@ -380,23 +402,23 @@ static bool create_audio_list_info(const char* context, const char* filename, co
 	json_t* j_tmp;
 
 	if((context == NULL) || (filename == NULL) || (uuid == NULL)) {
-		ast_log(LOG_WARNING, "Wrong input parameter.");
+		ast_log(LOG_WARNING, "Wrong input parameter.\n");
 		return false;
 	}
-	ast_log(LOG_DEBUG, "Fired create_audio_list_info. context[%s], filename[%s], uuid[%s]", context, filename, uuid);
+	ast_log(LOG_DEBUG, "Fired create_audio_list_info. context[%s], filename[%s], uuid[%s]\n", context, filename, uuid);
 
 	// create file hash
 	hash = create_file_hash(filename);
 	if(hash == NULL) {
-		ast_log(LOG_WARNING, "Could not create hash info.");
+		ast_log(LOG_WARNING, "Could not create hash info.\n");
 		return false;
 	}
-	ast_log(LOG_DEBUG, "Created hash. hash[%s]", hash);
+	ast_log(LOG_DEBUG, "Created hash. hash[%s]\n", hash);
 
 	// check existence
 	j_tmp = get_audio_list_info_by_hash(hash);
 	if(j_tmp != NULL) {
-		ast_log(LOG_NOTICE, "The given file is already inserted.");
+		ast_log(LOG_NOTICE, "The given file is already inserted.\n");
 		sfree(hash);
 		return false;
 	}
@@ -417,7 +439,7 @@ static bool create_audio_list_info(const char* context, const char* filename, co
 	ret = db_ctx_insert(g_db_ctx, "audio_list", j_tmp);
 	json_decref(j_tmp);
 	if(ret == false) {
-		ast_log(LOG_ERROR, "Could not create fingerprint info.");
+		ast_log(LOG_ERROR, "Could not create fingerprint info.\n");
 		return false;
 	}
 
@@ -438,15 +460,15 @@ static bool create_audio_fingerprint_info(const char* filename, const char* uuid
 	json_t* j_fprints;
 
 	if((filename == NULL) || (uuid == NULL)) {
-		ast_log(LOG_WARNING, "Wrong input parameter.");
+		ast_log(LOG_WARNING, "Wrong input parameter.\n");
 		return false;
 	}
-	ast_log(LOG_DEBUG, "Fired create_audio_fingerprint_info. filename[%s], uuid[%s]", filename, uuid);
+	ast_log(LOG_DEBUG, "Fired create_audio_fingerprint_info. filename[%s], uuid[%s]\n", filename, uuid);
 
 	// craete fingerprint data
 	j_fprints = create_audio_fingerprints(filename, uuid);
 	if(j_fprints == NULL) {
-		ast_log(LOG_ERROR, "Could not create fingerprint data.");
+		ast_log(LOG_ERROR, "Could not create fingerprint data.\n");
 		return false;
 	}
 
@@ -454,7 +476,7 @@ static bool create_audio_fingerprint_info(const char* filename, const char* uuid
 	json_array_foreach(j_fprints, idx, j_fprint) {
 		ret = db_ctx_insert(g_db_ctx, "audio_fingerprint", j_fprint);
 		if(ret == false) {
-			ast_log(LOG_WARNING, "Could not insert fingerprint data.");
+			ast_log(LOG_WARNING, "Could not insert fingerprint data.\n");
 			continue;
 		}
 	}
@@ -486,14 +508,14 @@ static json_t* create_audio_fingerprints(const char* filename, const char* uuid)
 		fprintf(stderr, "Wrong input parameter.\n");
 		return NULL;
 	}
-	ast_log(LOG_DEBUG, "Fired create_audio_fingerprints. filename[%s], uuid[%s]", filename, uuid);
+	ast_log(LOG_DEBUG, "Fired create_audio_fingerprints. filename[%s], uuid[%s]\n", filename, uuid);
 
 	// initiate aubio src
 	source = strdup(filename);
 	aubio_src = new_aubio_source(source, DEF_AUBIO_SAMPLERATE, DEF_AUBIO_HOPSIZE);
 	sfree(source);
 	if(aubio_src == NULL) {
-		ast_log(LOG_ERROR, "Could not initiate aubio src.");
+		ast_log(LOG_ERROR, "Could not initiate aubio src.\n");
 		return NULL;
 	}
 
@@ -505,7 +527,7 @@ static json_t* create_audio_fingerprints(const char* filename, const char* uuid)
 	mfcc_buf = new_fvec(DEF_AUBIO_HOPSIZE);
 	mfcc_out = new_fvec(DEF_AUBIO_COEFS);
 	if((pv == NULL) || (fftgrain == NULL) || (mfcc == NULL) || (mfcc_buf == NULL) || (mfcc_out == NULL)) {
-		ast_log(LOG_ERROR, "Could not initiate aubio parameters.");
+		ast_log(LOG_ERROR, "Could not initiate aubio parameters.\n");
 
 		del_aubio_pvoc(pv);
 		del_cvec(fftgrain);
@@ -542,7 +564,7 @@ static json_t* create_audio_fingerprints(const char* filename, const char* uuid)
 		}
 
 		if(j_tmp == NULL) {
-			ast_log(LOG_ERROR, "Could not create mfcc data.");
+			ast_log(LOG_ERROR, "Could not create mfcc data.\n");
 			continue;
 		}
 
@@ -599,6 +621,8 @@ static bool init_database(void)
 
 	/* audio_fingerprint */
 	asprintf(&sql, "create table audio_fingerprint("
+
+			" context        varchar(255),"
 			" audio_uuid     varchar(255),"
 			" frame_idx      integer");
 	for(i = 0; i < DEF_AUBIO_COEFS; i++) {
@@ -612,17 +636,26 @@ static bool init_database(void)
 	ret = db_ctx_exec(g_db_ctx, sql);
 	sfree(sql);
 	if(ret == false) {
-		ast_log(LOG_ERROR, "Could not create fingerprint table.");
+		ast_log(LOG_ERROR, "Could not create fingerprint table.\n");
 		return false;
 	}
 
-	// create indices
+	// create index for context
+	asprintf(&sql, "create index idx_audio_fingerprint_context on audio_fingerprint(context);");
+	ret = db_ctx_exec(g_db_ctx, sql);
+	sfree(sql);
+	if(ret == false) {
+		ast_log(LOG_ERROR, "Could not create idx_audio_fingerprint_max%d table.\n", i);
+		return false;
+	}
+
+	// create indices for max
 	for(i = 1; i <= DEF_AUBIO_COEFS; i++) {
 		asprintf(&sql, "create index idx_audio_fingerprint_max%d on audio_fingerprint(max%d);", i, i);
 		ret = db_ctx_exec(g_db_ctx, sql);
 		sfree(sql);
 		if(ret == false) {
-			ast_log(LOG_ERROR, "Could not create idx_audio_fingerprint_max%d table.", i);
+			ast_log(LOG_ERROR, "Could not create idx_audio_fingerprint_max%d table.\n", i);
 			return false;
 		}
 	}
@@ -642,13 +675,13 @@ static char* create_file_hash(const char* filename)
 	char* tmp;
 
 	if(filename == NULL) {
-		ast_log(LOG_WARNING, "Wrong input parameter.");
+		ast_log(LOG_WARNING, "Wrong input parameter.\n");
 		return NULL;
 	}
 
 	file = fopen (filename, "rb");
 	if(file == NULL) {
-		ast_log(LOG_WARNING, "Could not open file. filename[%s]", filename);
+		ast_log(LOG_WARNING, "Could not open file. filename[%s]\n", filename);
 		return NULL;
 	}
 
@@ -683,18 +716,20 @@ static json_t* get_audio_list_info_by_hash(const char* hash)
 {
 	char* sql;
 	json_t* j_res;
+	db_ctx_t* db_ctx;
 
 	if(hash == NULL) {
-		ast_log(LOG_WARNING, "Wrong input parameter.");
+		ast_log(LOG_WARNING, "Wrong input parameter.\n");
 		return NULL;
 	}
 
 	asprintf(&sql, "select * from audio_list where hash = '%s';", hash);
-	db_ctx_query(g_db_ctx, sql);
+	db_ctx = create_db_ctx();
+	db_ctx_query(db_ctx, sql);
 	sfree(sql);
 
-	j_res = db_ctx_get_record(g_db_ctx);
-	db_ctx_free(g_db_ctx);
+	j_res = db_ctx_get_record(db_ctx);
+	destroy_db_ctx(db_ctx);
 	if(j_res == NULL) {
 		return NULL;
 	}
@@ -706,18 +741,20 @@ static json_t* get_audio_list_info(const char* uuid)
 {
 	char* sql;
 	json_t* j_res;
+	db_ctx_t* db_ctx;
 
 	if(uuid == NULL) {
-		ast_log(LOG_WARNING, "Wrong input parameter.");
+		ast_log(LOG_WARNING, "Wrong input parameter.\n");
 		return NULL;
 	}
 
 	asprintf(&sql, "select * from audio_list where uuid = '%s';", uuid);
-	db_ctx_query(g_db_ctx, sql);
+	db_ctx = create_db_ctx();
+	db_ctx_query(db_ctx, sql);
 	sfree(sql);
 
-	j_res = db_ctx_get_record(g_db_ctx);
-	db_ctx_free(g_db_ctx);
+	j_res = db_ctx_get_record(db_ctx);
+	destroy_db_ctx(db_ctx);
 	if(j_res == NULL) {
 		return NULL;
 	}
@@ -733,12 +770,14 @@ static bool create_temp_search_table(const char* tablename)
 	int ret;
 
 	if(tablename == NULL) {
-		ast_log(LOG_WARNING, "Wrong input parameter.");
+		ast_log(LOG_WARNING, "Wrong input parameter.\n");
 		return false;
 	}
 
 	// create audio_fingerprint table
 	asprintf(&sql, "create table %s("
+
+			" context        varchar(255),"
 			" audio_uuid     varchar(255),"
 			" frame_idx      integer",
 			tablename
@@ -754,7 +793,7 @@ static bool create_temp_search_table(const char* tablename)
 	ret = db_ctx_exec(g_db_ctx, sql);
 	sfree(sql);
 	if(ret == false) {
-		ast_log(LOG_ERROR, "Could not create fingerprint search table.");
+		ast_log(LOG_ERROR, "Could not create fingerprint search table.\n");
 		return false;
 	}
 
@@ -766,7 +805,7 @@ static bool delete_temp_search_table(const char* tablename)
 	char* sql;
 
 	if(tablename == NULL) {
-		ast_log(LOG_WARNING, "Wrong input parameter.");
+		ast_log(LOG_WARNING, "Wrong input parameter.\n");
 		return false;
 	}
 
@@ -783,21 +822,23 @@ json_t* fp_get_context_lists_all(void)
 	char* sql;
 	json_t* j_res;
 	json_t* j_tmp;
+	db_ctx_t* db_ctx;
 
 	asprintf(&sql, "select * from context_list;");
-	db_ctx_query(g_db_ctx, sql);
+	db_ctx = create_db_ctx();
+	db_ctx_query(db_ctx, sql);
 	sfree(sql);
 
 	j_res = json_array();
 	while(1) {
-		j_tmp = db_ctx_get_record(g_db_ctx);
+		j_tmp = db_ctx_get_record(db_ctx);
 		if(j_tmp == NULL) {
 			break;
 		}
 
 		json_array_append_new(j_res, j_tmp);
 	}
-	db_ctx_free(g_db_ctx);
+	destroy_db_ctx(db_ctx);
 
 	return j_res;
 }
@@ -806,18 +847,20 @@ json_t* fp_get_context_list_info(const char* name)
 {
 	char* sql;
 	json_t* j_res;
+	db_ctx_t* db_ctx;
 
 	if(name == NULL) {
-		ast_log(LOG_WARNING, "Wrong input parameter.");
+		ast_log(LOG_WARNING, "Wrong input parameter.\n");
 		return NULL;
 	}
 
 	asprintf(&sql, "select * from context_list where name == '%s';", name);
-	db_ctx_query(g_db_ctx, sql);
+	db_ctx = create_db_ctx();
+	db_ctx_query(db_ctx, sql);
 	sfree(sql);
 
-	j_res = db_ctx_get_record(g_db_ctx);
-	db_ctx_free(g_db_ctx);
+	j_res = db_ctx_get_record(db_ctx);
+	destroy_db_ctx(db_ctx);
 	if(j_res == NULL) {
 		return NULL;
 	}
@@ -948,7 +991,7 @@ bool fp_delete_context_list_info(const char* name)
 	return true;
 }
 
-static char* generate_uuid(void)
+char* fp_generate_uuid(void)
 {
 	uuid_t uuid;
 	char tmp[DEF_UUID_STR_LEN];
@@ -995,3 +1038,24 @@ static char* replace_string_char(const char* str, const char org, const char tar
 	return tmp;
 }
 
+static db_ctx_t* create_db_ctx(void)
+{
+	db_ctx_t* db_ctx;
+
+	db_ctx = calloc(1, sizeof(db_ctx_t));
+	db_ctx->db = g_db_ctx->db;
+
+	return db_ctx;
+}
+
+static void destroy_db_ctx(db_ctx_t* db_ctx)
+{
+	if(db_ctx == NULL) {
+		return;
+	}
+
+	db_ctx_free(db_ctx);
+	sfree(db_ctx);
+
+	return;
+}

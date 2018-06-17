@@ -41,7 +41,7 @@ static db_ctx_t* db_ctx_create(void)
 
   ctx = calloc(1, sizeof(db_ctx_t));
   if(ctx == NULL) {
-    ast_log(LOG_ERROR, "Could not create new db context.");
+    ast_log(LOG_ERROR, "Could not create new db context.\n");
     return NULL;
   }
   ctx->db = NULL;
@@ -60,21 +60,21 @@ static bool db_ctx_connect(db_ctx_t* ctx, const char* filename)
   int ret;
 
   if((ctx == NULL) || (filename == NULL)) {
-    ast_log(LOG_WARNING, "Wrong input parameter.");
+    ast_log(LOG_WARNING, "Wrong input parameter.\n");
     return false;
   }
 
   if(ctx->db != NULL) {
-    ast_log(AST_LOG_NOTICE, "Database is already connected.");
+    ast_log(AST_LOG_NOTICE, "Database is already connected.\n");
     return true;
   }
 
   ret = sqlite3_open(filename, &ctx->db);
   if(ret != SQLITE_OK) {
-    ast_log(LOG_ERROR, "Could not initiate database. err[%s]", sqlite3_errmsg(ctx->db));
+    ast_log(LOG_ERROR, "Could not initiate database. err[%s]\n", sqlite3_errmsg(ctx->db));
     return false;
   }
-  ast_log(LOG_DEBUG, "Connected to database ctx. filename[%s]", filename);
+  ast_log(LOG_DEBUG, "Connected to database ctx. filename[%s]\n", filename);
 
   return true;
 }
@@ -88,7 +88,7 @@ bool db_ctx_free(db_ctx_t* ctx)
   int ret;
 
   if(ctx == NULL) {
-    ast_log(LOG_WARNING, "Wrong input parameter.");
+    ast_log(LOG_WARNING, "Wrong input parameter.\n");
   }
 
   // check already freed
@@ -98,7 +98,7 @@ bool db_ctx_free(db_ctx_t* ctx)
 
   ret = sqlite3_finalize(ctx->stmt);
   if(ret != SQLITE_OK) {
-    ast_log(LOG_ERROR, "Could not finalize stme. ret[%d]", ret);
+    ast_log(LOG_ERROR, "Could not finalize stme. ret[%d]\n", ret);
     return false;
   }
   ctx->stmt = NULL;
@@ -127,7 +127,7 @@ static int db_ctx_busy_handler(void *data, int retry)
 
   if (retry < attr->max_retry) {
     /* Sleep a while and retry again. */
-    ast_log(LOG_DEBUG, "Hits SQLITE_BUSY %d times, retry again.", retry);
+    ast_log(LOG_DEBUG, "Hits SQLITE_BUSY %d times, retry again.\n", retry);
     sqlite3_sleep(attr->sleep_ms);
 
     /* Return non-zero to let caller retry again. */
@@ -135,7 +135,7 @@ static int db_ctx_busy_handler(void *data, int retry)
   }
 
   /* Return zero to let caller return SQLITE_BUSY immediately. */
-  ast_log(LOG_ERROR, "Retried too many, exit. retry[%d]", retry);
+  ast_log(LOG_ERROR, "Retried too many, exit. retry[%d]\n", retry);
   return 0;
 }
 
@@ -150,15 +150,15 @@ db_ctx_t* db_ctx_init(const char* name)
   db_ctx_t* db_ctx;
 
   if(name == NULL) {
-    ast_log(LOG_WARNING, "Wrong input parameter.");
+    ast_log(LOG_WARNING, "Wrong input parameter.\n");
     return NULL;
   }
-  ast_log(LOG_DEBUG, "Initiate db context. name[%s]", name);
+  ast_log(LOG_DEBUG, "Initiate db context. name[%s]\n", name);
 
   // create new db_ctx
   db_ctx = db_ctx_create();
   if(db_ctx == NULL) {
-    ast_log(LOG_ERROR, "Could not create db context.");
+    ast_log(LOG_ERROR, "Could not create db context.\n");
     return NULL;
   }
 
@@ -180,18 +180,18 @@ void db_ctx_term(db_ctx_t* ctx)
   int ret;
 
   if(ctx == NULL) {
-    ast_log(LOG_WARNING, "Wrong input parameter.");
+    ast_log(LOG_WARNING, "Wrong input parameter.\n");
     return;
   }
   db_ctx_free(ctx);
 
   ret = sqlite3_close(ctx->db);
   if(ret != SQLITE_OK) {
-    ast_log(LOG_ERROR, "Could not close the database correctly. err[%s]", sqlite3_errmsg(ctx->db));
+    ast_log(LOG_ERROR, "Could not close the database correctly. err[%s]\n", sqlite3_errmsg(ctx->db));
     return;
   }
 
-  ast_log(LOG_DEBUG, "Released database context.");
+  ast_log(LOG_DEBUG, "Released database context.\n");
   ctx->db = NULL;
 
   sfree(ctx);
@@ -208,7 +208,7 @@ bool db_ctx_query(db_ctx_t* ctx, const char* query)
   sqlite3_stmt* result;
 
   if((ctx == NULL) || (query == NULL) || (ctx->db == NULL)) {
-    ast_log(LOG_WARNING, "Wrong input parameter.");
+    ast_log(LOG_WARNING, "Wrong input parameter.\n");
     return false;
   }
 
@@ -217,7 +217,7 @@ bool db_ctx_query(db_ctx_t* ctx, const char* query)
 
   ret = sqlite3_prepare_v2(ctx->db, query, -1, &result, NULL);
   if(ret != SQLITE_OK) {
-    ast_log(LOG_ERROR, "Could not prepare query. query[%s], err[%s]", query, sqlite3_errmsg(ctx->db));
+    ast_log(LOG_ERROR, "Could not prepare query. query[%s], err[%s]\n", query, sqlite3_errmsg(ctx->db));
     return false;
   }
 
@@ -237,7 +237,7 @@ bool db_ctx_exec(db_ctx_t* ctx, const char* query)
   busy_handler_attr bh_attr;
 
   if((ctx == NULL) || (query == NULL) || (ctx->db == NULL)) {
-    ast_log(LOG_WARNING, "Wrong input parameter.");
+    ast_log(LOG_WARNING, "Wrong input parameter.\n");
     return false;
   }
 
@@ -249,7 +249,7 @@ bool db_ctx_exec(db_ctx_t* ctx, const char* query)
   // execute
   ret = sqlite3_exec(ctx->db, query, NULL, 0, &err);
   if(ret != SQLITE_OK) {
-    ast_log(LOG_ERROR, "Could not execute query. query[%s], err[%s]", query, err);
+    ast_log(LOG_ERROR, "Could not execute query. query[%s], err[%s]\n", query, err);
     sqlite3_free(err);
     return false;
   }
@@ -275,14 +275,14 @@ json_t* db_ctx_get_record(db_ctx_t* ctx)
 	const char* tmp_const;
 
   if(ctx == NULL) {
-    ast_log(LOG_WARNING, "Wrong input parameter.");
+    ast_log(LOG_WARNING, "Wrong input parameter.\n");
     return NULL;
   }
 
 	ret = sqlite3_step(ctx->stmt);
 	if(ret != SQLITE_ROW) {
 		if(ret != SQLITE_DONE) {
-		  ast_log(LOG_ERROR, "Could not patch the result. ret[%d], err[%s]", ret, sqlite3_errmsg(ctx->db));
+		  ast_log(LOG_ERROR, "Could not patch the result. ret[%d], err[%s]\n", ret, sqlite3_errmsg(ctx->db));
 		}
 		return NULL;
 	}
@@ -340,14 +340,14 @@ json_t* db_ctx_get_record(db_ctx_t* ctx)
 			default:
 			{
 				// not done yet.
-			  ast_log(LOG_NOTICE, "Not supported type. type[%d]", type);
+			  ast_log(LOG_NOTICE, "Not supported type. type[%d]\n", type);
 				j_tmp = json_null();
 			}
 			break;
 		}
 
 		if(j_tmp == NULL) {
-		  ast_log(LOG_ERROR, "Could not parse result column. name[%s], type[%d]",
+		  ast_log(LOG_ERROR, "Could not parse result column. name[%s], type[%d]\n",
 					sqlite3_column_name(ctx->stmt, i), type);
 			j_tmp = json_null();
 		}
@@ -368,14 +368,13 @@ bool db_ctx_insert(db_ctx_t* ctx, const char* table, const json_t* j_data)
   int ret;
 
   if((ctx == NULL) || (table == NULL) || (j_data == NULL)) {
-    ast_log(LOG_WARNING, "Wrong input parameter.");
+    ast_log(LOG_WARNING, "Wrong input parameter.\n");
     return false;
   }
-//  ast_log(LOG_DEBUG, "Fired db_ctx_insert");
 
   ret = db_ctx_insert_basic(ctx, table, j_data, false);
   if(ret == false) {
-    ast_log(LOG_ERROR, "Could not insert data.");
+    ast_log(LOG_ERROR, "Could not insert data.\n");
     return false;
   }
 
@@ -393,14 +392,13 @@ bool db_ctx_insert_or_replace(db_ctx_t* ctx, const char* table, const json_t* j_
   int ret;
 
   if((ctx == NULL) || (ctx->db == NULL) || (table == NULL) || (j_data == NULL)) {
-    ast_log(LOG_WARNING, "Wrong input parameter.");
+    ast_log(LOG_WARNING, "Wrong input parameter.\n");
     return false;
   }
-//  ast_log(LOG_DEBUG, "Fired db_ctx_insert_or_replace");
 
   ret = db_ctx_insert_basic(ctx, table, j_data, true);
   if(ret == false) {
-    ast_log(LOG_ERROR, "Could not insert data.");
+    ast_log(LOG_ERROR, "Could not insert data.\n");
     return false;
   }
 
@@ -428,10 +426,9 @@ static bool db_ctx_insert_basic(db_ctx_t* ctx, const char* table, const json_t* 
   char*       tmp_sqlite_buf; // sqlite3_mprintf
 
   if((ctx == NULL) || (ctx->db == NULL) || (table == NULL) || (j_data == NULL)) {
-    ast_log(LOG_WARNING, "Wrong input parameter.");
+    ast_log(LOG_WARNING, "Wrong input parameter.\n");
     return false;
   }
-//  ast_log(LOG_DEBUG, "db_ctx_insert_basic.");
 
   // copy original.
   j_data_cp = json_deep_copy(j_data);
@@ -510,7 +507,7 @@ static bool db_ctx_insert_basic(db_ctx_t* ctx, const char* table, const json_t* 
         // Not done yet.
 
         // we don't support another types.
-        ast_log(LOG_WARNING, "Wrong type input. We don't handle this.");
+        ast_log(LOG_WARNING, "Wrong type input. We don't handle this.\n");
         asprintf(&tmp_sub, "\"%s\"", "null");
       }
       break;
@@ -541,7 +538,7 @@ static bool db_ctx_insert_basic(db_ctx_t* ctx, const char* table, const json_t* 
   ret = db_ctx_exec(ctx, sql);
   sfree(sql);
   if(ret == false) {
-    ast_log(LOG_ERROR, "Could not insert data.");
+    ast_log(LOG_ERROR, "Could not insert data.\n");
     return false;
   }
 
@@ -626,7 +623,7 @@ char* db_ctx_get_update_str(const json_t* j_data)
       default: {
         // Not done yet.
         // we don't support another types.
-        ast_log(LOG_WARNING, "Wrong type input. We don't handle this.");
+        ast_log(LOG_WARNING, "Wrong type input. We don't handle this.\n");
         asprintf(&tmp_sub, "%s = %s", key, "null");
       }
       break;
@@ -728,7 +725,7 @@ char* db_ctx_get_condition_str(const json_t* j_data)
       default: {
         // Not done yet.
         // we don't support another types.
-        ast_log(LOG_WARNING, "Wrong type input. We don't handle this.");
+        ast_log(LOG_WARNING, "Wrong type input. We don't handle this.\n");
         asprintf(&tmp_sub, "%s = %s", key, "null");
       }
       break;
@@ -761,7 +758,7 @@ bool db_ctx_backup(db_ctx_t* ctx, const char *filename)
   sqlite3_backup* backup;
 
   if((ctx == NULL) || (filename == NULL)) {
-  	ast_log(LOG_WARNING, "Wrong input parameter.");
+  	ast_log(LOG_WARNING, "Wrong input parameter.\n");
   	return false;
   }
 
@@ -773,7 +770,7 @@ bool db_ctx_backup(db_ctx_t* ctx, const char *filename)
 
   backup = sqlite3_backup_init(db, "main", ctx->db, "main");
   if(backup == NULL) {
-  	ast_log(LOG_WARNING, "Could not initiate backup database.");
+  	ast_log(LOG_WARNING, "Could not initiate backup database.\n");
   	return false;
   }
 
@@ -784,7 +781,7 @@ bool db_ctx_backup(db_ctx_t* ctx, const char *filename)
   	}
 
   	if((ret != SQLITE_OK) && (ret != SQLITE_BUSY) && (ret != SQLITE_LOCKED)) {
-  		ast_log(LOG_ERROR, "Could not backup the database. ret[%d]", ret);
+  		ast_log(LOG_ERROR, "Could not backup the database. ret[%d]\n", ret);
   		break;
   	}
 
@@ -806,13 +803,13 @@ bool db_ctx_load_db_schema(db_ctx_t* ctx, const char* filename)
   sqlite3* budb;
 
   if((ctx == NULL) || (filename == NULL)) {
-  	ast_log(LOG_WARNING, "Wrong input parameter.");
+  	ast_log(LOG_WARNING, "Wrong input parameter.\n");
   	return false;
   }
 
   ret = sqlite3_open(filename, &budb);
   if(ret != SQLITE_OK) {
-  	ast_log(LOG_ERROR, "Could not open the database.");
+  	ast_log(LOG_ERROR, "Could not open the database.\n");
   	return false;
   }
 
@@ -836,7 +833,7 @@ bool db_ctx_load_db_data(db_ctx_t* ctx, const char* filename)
   char* sql;
 
   if((ctx == NULL) || (filename == NULL)) {
-  	ast_log(LOG_WARNING, "Wrong input parameter.");
+  	ast_log(LOG_WARNING, "Wrong input parameter.\n");
   	return false;
   }
 
@@ -866,21 +863,21 @@ bool db_ctx_load_db_all(db_ctx_t* ctx, const char* filename)
   int ret;
 
   if((ctx == NULL) || (filename == NULL)) {
-  	ast_log(LOG_WARNING, "Wrong input parameter.");
+  	ast_log(LOG_WARNING, "Wrong input parameter.\n");
   	return false;
   }
 
   // load schema
   ret = db_ctx_load_db_schema(ctx, filename);
   if(ret == false) {
-    ast_log(LOG_ERROR, "Could not load db scema.");
+    ast_log(LOG_ERROR, "Could not load db scema.\n");
     return false;
   }
 
   // load data
   ret = db_ctx_load_db_data(ctx, filename);
   if(ret == false) {
-    ast_log(LOG_ERROR, "Could not load db scema.");
+    ast_log(LOG_ERROR, "Could not load db scema.\n");
     return false;
   }
 

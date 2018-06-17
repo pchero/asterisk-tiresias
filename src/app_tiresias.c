@@ -33,6 +33,8 @@
 #include "app_tiresias.h"
 #include "db_ctx_handler.h"
 #include "fp_handler.h"
+#include "cli_handler.h"
+#include "application_handler.h"
 
 #define DEF_MODULE_NAME	"app_tiresias"
 
@@ -101,6 +103,18 @@ static bool init(void)
 		return false;
 	}
 
+	ret = cli_init();
+	if(ret == false) {
+		ast_log(LOG_ERROR, "Could not initiate cli.\n");
+		return false;
+	}
+
+	ret = application_init();
+	if(ret == false) {
+		ast_log(LOG_ERROR, "Could not initate application.\n");
+		return false;
+	}
+
 	return true;
 }
 
@@ -112,6 +126,16 @@ static bool term(void)
 	if(ret == false) {
 		/* just write the notice log only. */
 		ast_log(LOG_NOTICE, "Could not terminate database.\n");
+	}
+
+	ret = cli_term();
+	if(ret == false) {
+		ast_log(LOG_NOTICE, "Could not terminate cli.\n");
+	}
+
+	ret = application_term();
+	if(ret == false) {
+		ast_log(LOG_NOTICE, "Could not terminate application correctly.\n");
 	}
 
 	json_decref(g_app->j_conf);
@@ -216,7 +240,7 @@ static bool init_context(void)
 		return false;
 	}
 
-	/* verify the context */
+	/* delete the context if the context is not exists in the conf */
 	json_array_foreach(j_contexts, idx, j_context) {
 		tmp_const = json_string_value(json_object_get(j_context, "name"));
 		if(tmp_const == NULL) {

@@ -23,6 +23,8 @@ json_t* fp_get_audio_lists_by_contextname(const char* name);
 bool fp_delete_audio_list_info(const char* uuid);
 bool fp_craete_audio_list_info(const char* context, const char* filename);
 
-json_t* fp_search_fingerprint_info(const char* filename, const int coefs);
+json_t* fp_search_fingerprint_info(const char* context, const char* filename, const int coefs);
+
+char* fp_generate_uuid(void);
 
 #endif /* FP_HANDLER_H_ */
