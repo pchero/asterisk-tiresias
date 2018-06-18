@@ -45,7 +45,7 @@ db_ctx_t* g_db_ctx;	// database context
 static bool init_database(void);
 
 static bool create_audio_list_info(const char* context, const char* filename, const char* uuid);
-static bool create_audio_fingerprint_info(const char* filename, const char* uuid);
+static bool create_audio_fingerprint_info(const char* context, const char* filename, const char* uuid);
 static json_t* create_audio_fingerprints(const char* filename, const char* uuid);
 
 static json_t* get_audio_list_info(const char* uuid);
@@ -178,7 +178,7 @@ bool fp_craete_audio_list_info(const char* context, const char* filename)
 	}
 
 	// create audio fingerprint info
-	ret = create_audio_fingerprint_info(filename, uuid);
+	ret = create_audio_fingerprint_info(context, filename, uuid);
 	if(ret == false) {
 		ast_log(LOG_NOTICE, "Could not create audio fingerprint info.\n");
 
@@ -190,7 +190,12 @@ bool fp_craete_audio_list_info(const char* context, const char* filename)
 	return true;
 }
 
-json_t* fp_search_fingerprint_info(const char* context, const char* filename, const int coefs)
+json_t* fp_search_fingerprint_info(
+		const char* context,
+		const char* filename,
+		const int coefs,
+		const double tolerance
+		)
 {
 	int ret;
 	char* uuid;
@@ -206,6 +211,7 @@ json_t* fp_search_fingerprint_info(const char* context, const char* filename, co
 	int frame_count;
 	int i;
 	db_ctx_t* db_ctx;
+	double tole;
 
 	if((context == NULL) || (filename == NULL)) {
 		ast_log(LOG_WARNING, "Wrong input parameter.\n");
@@ -216,6 +222,12 @@ json_t* fp_search_fingerprint_info(const char* context, const char* filename, co
 	if((coefs < 1) || (coefs > DEF_AUBIO_COEFS)) {
 		ast_log(LOG_WARNING, "Wrong coefs count. max[%d], coefs[%d]\n", DEF_AUBIO_COEFS, coefs);
 		return NULL;
+	}
+	
+	tole = tolerance;
+	if(tole < 0) {
+		ast_log(LOG_NOTICE, "Wrong tolerance setting. Set to default. tolerance[%f], default[%f]\n", tolerance, DEF_SEARCH_TOLERANCE);
+		tole = DEF_SEARCH_TOLERANCE;
 	}
 
 	uuid = fp_generate_uuid();
@@ -243,19 +255,30 @@ json_t* fp_search_fingerprint_info(const char* context, const char* filename, co
 		sfree(tablename);
 		return NULL;
 	}
+	ast_log(LOG_DEBUG, "Created search info.\n");
 
 	// search
 	frame_count = json_array_size(j_fprints);
+	int count = 0;
 	json_array_foreach(j_fprints, idx, j_tmp) {
+//		asprintf(&sql, "insert into %s select * from audio_fingerprint where "
+//				" context = '%s' "
+//				" and max1 >= %f "
+//				" and max1 <= %f ",
+//				tablename,
+//				context,
+//				json_real_value(json_object_get(j_tmp, "max1")) - tole,
+//				json_real_value(json_object_get(j_tmp, "max1")) + tole
+//				);
+
 		asprintf(&sql, "insert into %s select * from audio_fingerprint where "
-				" context = '%s' "
-				" and max1 >= %f "
+				" max1 >= %f "
 				" and max1 <= %f ",
 				tablename,
-				context,
-				json_real_value(json_object_get(j_tmp, "max1")) - DEF_SEARCH_TOLERANCE,
-				json_real_value(json_object_get(j_tmp, "max1")) + DEF_SEARCH_TOLERANCE
+				json_real_value(json_object_get(j_tmp, "max1")) - tole,
+				json_real_value(json_object_get(j_tmp, "max1")) + tole
 				);
+
 
 		// add more conditions if the more coefs has given.
 		for(i = 1; i < coefs; i++) {
@@ -265,10 +288,10 @@ json_t* fp_search_fingerprint_info(const char* context, const char* filename, co
 					sql,
 
 					tmp_max,
-					json_real_value(json_object_get(j_tmp, tmp_max)) - DEF_SEARCH_TOLERANCE,
+					json_real_value(json_object_get(j_tmp, tmp_max)) - tole,
 
 					tmp_max,
-					json_real_value(json_object_get(j_tmp, tmp_max)) + DEF_SEARCH_TOLERANCE
+					json_real_value(json_object_get(j_tmp, tmp_max)) + tole
 					);
 			sfree(tmp_max);
 			sfree(sql);
@@ -279,10 +302,17 @@ json_t* fp_search_fingerprint_info(const char* context, const char* filename, co
 		sfree(sql);
 		sql = tmp;
 
-		db_ctx_exec(g_db_ctx, sql);
+		db_ctx = create_db_ctx();
+		db_ctx_exec(db_ctx, sql);
+		destroy_db_ctx(db_ctx);
+
 		sfree(sql);
+
+		ast_log(LOG_DEBUG, "Check count. count[%d]\n", count);
+		count++;
 	}
 	json_decref(j_fprints);
+	ast_log(LOG_DEBUG, "Inserted search info.\n");
 
 	// get result
 	asprintf(&sql, "select *, count(*) from %s group by audio_uuid order by count(*) DESC", tablename);
@@ -292,6 +322,7 @@ json_t* fp_search_fingerprint_info(const char* context, const char* filename, co
 
 	j_search = db_ctx_get_record(db_ctx);
 	destroy_db_ctx(db_ctx);
+	ast_log(LOG_DEBUG, "Executed query.\n");
 
 	// delete temp search table
 	ret = delete_temp_search_table(tablename);
@@ -308,6 +339,7 @@ json_t* fp_search_fingerprint_info(const char* context, const char* filename, co
 		ast_log(LOG_NOTICE, "Could not find data.\n");
 		return NULL;
 	}
+	ast_log(LOG_DEBUG, "Search complete.\n");
 
 	// create result
 	j_res = get_audio_list_info(json_string_value(json_object_get(j_search, "audio_uuid")));
@@ -316,6 +348,7 @@ json_t* fp_search_fingerprint_info(const char* context, const char* filename, co
 		json_decref(j_search);
 		return NULL;
 	}
+	ast_log(LOG_DEBUG, "Created result.\n");
 
 	json_object_set_new(j_res, "frame_count", json_integer(frame_count));
 	json_object_set(j_res, "match_count", json_object_get(j_search, "count(*)"));
@@ -452,7 +485,7 @@ static bool create_audio_list_info(const char* context, const char* filename, co
  * @param uuid
  * @return
  */
-static bool create_audio_fingerprint_info(const char* filename, const char* uuid)
+static bool create_audio_fingerprint_info(const char* context, const char* filename, const char* uuid)
 {
 	int ret;
 	int idx;
@@ -474,6 +507,7 @@ static bool create_audio_fingerprint_info(const char* filename, const char* uuid
 
 	// insert data
 	json_array_foreach(j_fprints, idx, j_fprint) {
+		json_object_set_new(j_fprint, "context", json_string(context));
 		ret = db_ctx_insert(g_db_ctx, "audio_fingerprint", j_fprint);
 		if(ret == false) {
 			ast_log(LOG_WARNING, "Could not insert fingerprint data.\n");
@@ -568,6 +602,7 @@ static json_t* create_audio_fingerprints(const char* filename, const char* uuid)
 			continue;
 		}
 
+		ast_log(LOG_DEBUG, "Check loop. count[%d]\n", count);
 		json_array_append_new(j_res, j_tmp);
 		count++;
 	}

@@ -40,7 +40,7 @@
 
 #define DEF_LIB_DIR	"/var/lib/asterisk/third-party/tiresias"
 
-#define DEF_CONFNAME			"app_tiresias.conf"
+#define DEF_CONFNAME			"tiresias.conf"
 
 #define DEF_CONF_GLOBAL			"global"
 

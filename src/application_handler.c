@@ -20,6 +20,7 @@
 #include <stdbool.h>
 #include <jansson.h>
 
+#include "app_tiresias.h"
 #include "fp_handler.h"
 #include "application_handler.h"
 
@@ -59,14 +60,17 @@ static int tiresias_exec(struct ast_channel *chan, const char *data)
 	char* data_copy;
 	char* filename;
 	char* tmp;
+	const char* tmp_const;
 	const char* context;
 	int duration;
 	struct ast_filestream* file;
+	double tolerance;
 	json_t* j_fp;
 
 	AST_DECLARE_APP_ARGS(args,
 		AST_APP_ARG(context);
 		AST_APP_ARG(duraion);
+		AST_APP_ARG(tolerance);
 	);
 
 	if (ast_strlen_zero(data) == 1) {
@@ -90,10 +94,24 @@ static int tiresias_exec(struct ast_channel *chan, const char *data)
 	if(ret != 1) {
 		duration = atoi(args.duraion);
 	}
-	ast_log(LOG_VERBOSE, "Application tiresias. context[%s], durtion[%d]\n", context, duration);
 
-	/* answer */
-	ret = ast_answer(chan);
+	tolerance = -1;
+	tmp_const = json_string_value(json_object_get(json_object_get(g_app->j_conf, "global"), "tolerance"));
+	if(tmp_const != NULL) {
+		tolerance = atof(tmp_const);
+	}
+	ret = ast_strlen_zero(args.tolerance);
+	if(ret != 1) {
+		tolerance = atof(args.tolerance);
+	}
+	ast_log(LOG_VERBOSE, "Application tiresias. context[%s], durtion[%d], tolerance[%f]\n", context, duration, tolerance);
+
+	ret = ast_channel_state(chan);
+	ast_log(LOG_VERBOSE, "Channel state. state[%d]\n", ret);
+	if(ret != AST_STATE_UP) {
+		/* answer */
+		ret = ast_answer(chan);
+	}
 
 	/* create temp file */
 	tmp = fp_generate_uuid();
@@ -111,23 +129,23 @@ static int tiresias_exec(struct ast_channel *chan, const char *data)
 	ast_closestream(file);
 	if(ret == 0) {
 		pbx_builtin_setvar_helper(chan, "TIRSTATUS", "HANGUP");
-		ast_filedelete(filename, NULL);
+//		ast_filedelete(filename, NULL);
 		sfree(filename);
 		return 0;
 	}
 	else if(ret < 0) {
 		pbx_builtin_setvar_helper(chan, "TIRSTATUS", "NOTFOUND");
-		ast_filedelete(filename, NULL);
+//		ast_filedelete(filename, NULL);
 		sfree(filename);
 		return 0;
 	}
 
 	/* do the fingerprinting and recognition */
 	asprintf(&tmp, "%s.wav", filename);
-	j_fp = fp_search_fingerprint_info(context, tmp, 1);
+	j_fp = fp_search_fingerprint_info(context, tmp, 1, tolerance);
 
 	/* delete file */
-	ast_filedelete(filename, NULL);
+//	ast_filedelete(filename, NULL);
 	sfree(filename);
 	sfree(tmp);
 
@@ -171,6 +189,7 @@ static int record_voice(struct ast_filestream* file, struct ast_channel *chan, i
 	struct ast_frame* frame;
 	int ms;
 	int err;
+	int count;
 
 	if((file == NULL) || (chan == NULL) || (duration < 0)) {
 		ast_log(LOG_WARNING, "Wrong input parameter.\n");
@@ -180,13 +199,19 @@ static int record_voice(struct ast_filestream* file, struct ast_channel *chan, i
 	err = 0;
 	start = ast_tvnow();
 	frame = NULL;
+	count = 0;
 	while(1) {
+		ast_log(LOG_DEBUG, "Count[%d]\n", count);
+		count++;
+
 		ms = ast_remaining_ms(start, duration);
+		ast_log(LOG_DEBUG, "Remaining millisecond. ms[%d]\n", ms);
 		if(ms <= 0) {
 			break;
 		}
 
 		ms = ast_waitfor(chan, ms);
+		ast_log(LOG_DEBUG, "Check value. waitfor[%d]\n", ms);
 		if(ms < 0) {
 			break;
 		}
@@ -203,15 +228,18 @@ static int record_voice(struct ast_filestream* file, struct ast_channel *chan, i
 			err = 1;
 			break;
 		}
+		ast_log(LOG_DEBUG, "Check value. datalen[%d], samples[%d]\n", frame->datalen, frame->samples);
 
 		if(frame->frametype != AST_FRAME_VOICE) {
+			ast_log(LOG_DEBUG, "Check frame type. frame_type[%d]\n", frame->frametype);
+			ast_frfree(frame);
 			continue;
 		}
 
 		ret = ast_writestream(file, frame);
 		ast_frfree(frame);
 		if(ret != 0) {
-			ast_log(LOG_WARNING, "Problem writing frame\n");
+			ast_log(LOG_WARNING, "Problem writing frame.\n");
 			err = 2;
 			break;
 		}
