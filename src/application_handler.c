@@ -115,7 +115,7 @@ static int tiresias_exec(struct ast_channel *chan, const char *data)
 
 	/* create temp file */
 	tmp = fp_generate_uuid();
-	asprintf(&filename, "/tmp/tiresias-%s", tmp);
+	ast_asprintf(&filename, "/tmp/tiresias-%s", tmp);
 	sfree(tmp);
 	file = 	ast_writefile(filename, "wav", NULL, O_CREAT|O_TRUNC|O_WRONLY, 0, AST_FILE_MODE);
 	if(file == NULL) {
@@ -129,23 +129,23 @@ static int tiresias_exec(struct ast_channel *chan, const char *data)
 	ast_closestream(file);
 	if(ret == 0) {
 		pbx_builtin_setvar_helper(chan, "TIRSTATUS", "HANGUP");
-//		ast_filedelete(filename, NULL);
+		ast_filedelete(filename, NULL);
 		sfree(filename);
 		return 0;
 	}
 	else if(ret < 0) {
 		pbx_builtin_setvar_helper(chan, "TIRSTATUS", "NOTFOUND");
-//		ast_filedelete(filename, NULL);
+		ast_filedelete(filename, NULL);
 		sfree(filename);
 		return 0;
 	}
 
 	/* do the fingerprinting and recognition */
-	asprintf(&tmp, "%s.wav", filename);
+	ast_asprintf(&tmp, "%s.wav", filename);
 	j_fp = fp_search_fingerprint_info(context, tmp, 1, tolerance);
 
 	/* delete file */
-//	ast_filedelete(filename, NULL);
+	ast_filedelete(filename, NULL);
 	sfree(filename);
 	sfree(tmp);
 
@@ -160,13 +160,13 @@ static int tiresias_exec(struct ast_channel *chan, const char *data)
 
 	/* TIRFRAMECOUNT */
 	ret = json_integer_value(json_object_get(j_fp, "frame_count"));
-	asprintf(&tmp, "%d", ret);
+	ast_asprintf(&tmp, "%d", ret);
 	pbx_builtin_setvar_helper(chan, "TIRFRAMECOUNT", tmp);
 	sfree(tmp);
 
 	/* TIRMATCHCOUNT */
 	ret = json_integer_value(json_object_get(j_fp, "match_count"));
-	asprintf(&tmp, "%d", ret);
+	ast_asprintf(&tmp, "%d", ret);
 	pbx_builtin_setvar_helper(chan, "TIRMATCHCOUNT", tmp);
 	sfree(tmp);
 

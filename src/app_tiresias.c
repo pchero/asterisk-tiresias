@@ -226,8 +226,9 @@ static bool init_config(void)
 static bool init_context(void)
 {
 	int ret;
-	char* tmp;
 	const char* tmp_const;
+	const char* name;
+	const char* directory;
 	int idx;
 	json_t* j_contexts;
 	json_t* j_context;
@@ -265,26 +266,29 @@ static bool init_context(void)
 	json_decref(j_contexts);
 
 	/* create context if not exist */
-	json_object_foreach(g_app->j_conf, tmp, j_tmp) {
-		if(tmp == NULL) {
+	json_object_foreach(g_app->j_conf, name, j_tmp) {
+		if(name == NULL) {
 			continue;
 		}
-		ast_log(LOG_DEBUG, "Checking context info. context[%s]\n", tmp);
+		ast_log(LOG_DEBUG, "Checking context info. context[%s]\n", name);
 
-		/* if global context, just continue */
-		ret = strcmp(tmp, DEF_CONF_GLOBAL);
+		/* if it's a global context, just continue */
+		ret = strcmp(name, DEF_CONF_GLOBAL);
 		if(ret == 0) {
 			continue;
 		}
 
-		j_context = fp_get_context_list_info(tmp);
-		if(j_context != NULL) {
+		/* get directory info */
+		directory = json_string_value(json_object_get(j_tmp, "directory"));
+		if(directory == NULL) {
+			ast_log(LOG_DEBUG, "Could not get directory option.\n");
 			continue;
 		}
 
-		ret = fp_create_context_list_info(tmp);
+		/* create or replace context_list info */
+		ret = fp_create_context_list_info(name, directory, true);
 		if(ret == false) {
-			ast_log(LOG_ERROR, "Could not create context_list info. name[%s]\n", tmp);
+			ast_log(LOG_ERROR, "Could not create or update context_list info. name[%s], directory[%s]", name, directory);
 			continue;
 		}
 	}
@@ -303,31 +307,57 @@ static bool init_audio(void)
 	int count;
     struct dirent **namelist;
     char* tmp;
+	const char* context_name;
 	const char* directory;
-	const char* section;
-	json_t* j_section;
+	json_t* j_contexts;
+	json_t* j_context;
+	int idx;
 
-	json_object_foreach(g_app->j_conf, section, j_section) {
-		directory = json_string_value(json_object_get(j_section, "directory"));
-		if(directory == NULL) {
-			ast_log(LOG_NOTICE, "Could not get directory info.\n");
+	j_contexts = fp_get_context_lists_all();
+	if(j_contexts == NULL) {
+		ast_log(LOG_NOTICE, "Could not get context_lists info correctly.\n");
+		return false;
+	}
+
+	json_array_foreach(j_contexts, idx, j_context) {
+		context_name = json_string_value(json_object_get(j_context, "name"));
+		if(context_name == NULL) {
+			ast_log(LOG_WARNING, "Could not context name info.\n");
 			continue;
 		}
 
+		/* get directory info */
+		directory = json_string_value(json_object_get(j_context, "directory"));
+		if(directory == NULL) {
+			ast_log(LOG_VERBOSE, "Could not get directory info. context[%s]\n", context_name);
+			continue;
+		}
+
+		/* get directory list info */
 		count = scandir(directory, &namelist, file_select, alphasort);
+		if(count < 0) {
+			ast_log(LOG_VERBOSE, "Could not get directory list info. context[%s]\n", context_name);
+			continue;
+		}
+
+		/* create fingerprint info for each item */
 		for(i = 0; i < count; i++) {
 
 			if(namelist[i]->d_name == NULL) {
+				ast_log(LOG_ERROR, "Could not get filename.\n");
 				continue;
 			}
 
-			asprintf(&tmp, "%s/%s", directory, namelist[i]->d_name);
+			/* create filename with path*/
+			ast_asprintf(&tmp, "%s/%s", directory, namelist[i]->d_name);
+			ast_log(LOG_VERBOSE, "Creating fingerprint info. filename[%s]\n", tmp);
 
 			/* create audio_list info */
-			ret = fp_craete_audio_list_info(section, tmp);
+			ret = fp_craete_audio_list_info(context_name, tmp);
 			sfree(namelist[i]);
 			sfree(tmp);
 			if(ret == false) {
+				ast_log(LOG_VERBOSE, "Could not create fingerprint info.\n");
 				continue;
 			}
 		}

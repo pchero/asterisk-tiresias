@@ -37,17 +37,17 @@ static int process_dml_row(void *pData, int nColumns, char **values, char **colu
 
 static db_ctx_t* db_ctx_create(void)
 {
-  db_ctx_t* ctx;
+	db_ctx_t* ctx;
 
-  ctx = calloc(1, sizeof(db_ctx_t));
-  if(ctx == NULL) {
-    ast_log(LOG_ERROR, "Could not create new db context.\n");
-    return NULL;
-  }
-  ctx->db = NULL;
-  ctx->stmt = NULL;
+	ctx = ast_calloc(1, sizeof(db_ctx_t));
+	if(ctx == NULL) {
+		ast_log(LOG_ERROR, "Could not create new db context.\n");
+		return NULL;
+	}
+	ctx->db = NULL;
+	ctx->stmt = NULL;
 
-  return ctx;
+	return ctx;
 }
 
 /**
@@ -441,13 +441,13 @@ static bool db_ctx_insert_basic(db_ctx_t* ctx, const char* table, const json_t* 
 
     // key
     if(sql_keys == NULL) {
-      asprintf(&tmp, "%s", key);
+      ast_asprintf(&tmp, "%s", key);
     }
     else {
-      asprintf(&tmp, "%s, %s", sql_keys, key);
+      ast_asprintf(&tmp, "%s, %s", sql_keys, key);
     }
     sfree(sql_keys);
-    asprintf(&sql_keys, "%s", tmp);
+    ast_asprintf(&sql_keys, "%s", tmp);
     sfree(tmp);
 
     // value
@@ -458,35 +458,35 @@ static bool db_ctx_insert_basic(db_ctx_t* ctx, const char* table, const json_t* 
     switch(type) {
       // string
       case JSON_STRING: {
-        asprintf(&tmp_sub, "\'%s\'", json_string_value(j_val));
+        ast_asprintf(&tmp_sub, "\'%s\'", json_string_value(j_val));
       }
       break;
 
       // numbers
       case JSON_INTEGER: {
-        asprintf(&tmp_sub, "%lld", json_integer_value(j_val));
+        ast_asprintf(&tmp_sub, "%lld", json_integer_value(j_val));
       }
       break;
 
       case JSON_REAL: {
-        asprintf(&tmp_sub, "%f", json_real_value(j_val));
+        ast_asprintf(&tmp_sub, "%f", json_real_value(j_val));
       }
       break;
 
       // true
       case JSON_TRUE: {
-        asprintf(&tmp_sub, "\"%s\"", "true");
+        ast_asprintf(&tmp_sub, "\"%s\"", "true");
       }
       break;
 
       // false
       case JSON_FALSE: {
-        asprintf(&tmp_sub, "\"%s\"", "false");
+        ast_asprintf(&tmp_sub, "\"%s\"", "false");
       }
       break;
 
       case JSON_NULL: {
-        asprintf(&tmp_sub, "%s", "null");
+        ast_asprintf(&tmp_sub, "%s", "null");
       }
       break;
 
@@ -496,7 +496,7 @@ static bool db_ctx_insert_basic(db_ctx_t* ctx, const char* table, const json_t* 
         tmp_sqlite_buf = sqlite3_mprintf("%q", tmp);
         sfree(tmp);
 
-        asprintf(&tmp_sub, "'%s'", tmp_sqlite_buf);
+        ast_asprintf(&tmp_sub, "'%s'", tmp_sqlite_buf);
         sqlite3_free(tmp_sqlite_buf);
       }
       break;
@@ -508,29 +508,29 @@ static bool db_ctx_insert_basic(db_ctx_t* ctx, const char* table, const json_t* 
 
         // we don't support another types.
         ast_log(LOG_WARNING, "Wrong type input. We don't handle this.\n");
-        asprintf(&tmp_sub, "\"%s\"", "null");
+        ast_asprintf(&tmp_sub, "\"%s\"", "null");
       }
       break;
     }
 
     if(sql_values == NULL) {
-      asprintf(&tmp, "%s", tmp_sub);
+      ast_asprintf(&tmp, "%s", tmp_sub);
     }
     else {
-      asprintf(&tmp, "%s, %s", sql_values, tmp_sub);
+      ast_asprintf(&tmp, "%s, %s", sql_values, tmp_sub);
     }
     sfree(tmp_sub);
     sfree(sql_values);
-    sql_values = strdup(tmp);
+    sql_values = ast_strdup(tmp);
     sfree(tmp);
   }
   json_decref(j_data_cp);
 
   if(replace == true) {
-    asprintf(&sql, "insert or replace into %s(%s) values (%s);", table, sql_keys, sql_values);
+    ast_asprintf(&sql, "insert or replace into %s(%s) values (%s);", table, sql_keys, sql_values);
   }
   else {
-    asprintf(&sql, "insert into %s(%s) values (%s);", table, sql_keys, sql_values);
+    ast_asprintf(&sql, "insert into %s(%s) values (%s);", table, sql_keys, sql_values);
   }
   sfree(sql_keys);
   sfree(sql_values);
@@ -577,35 +577,35 @@ char* db_ctx_get_update_str(const json_t* j_data)
     switch(type) {
       // string
       case JSON_STRING: {
-        asprintf(&tmp_sub, "%s = \'%s\'", key, json_string_value(j_val));
+        ast_asprintf(&tmp_sub, "%s = \'%s\'", key, json_string_value(j_val));
       }
       break;
 
       // numbers
       case JSON_INTEGER: {
-        asprintf(&tmp_sub, "%s = %lld", key, json_integer_value(j_val));
+        ast_asprintf(&tmp_sub, "%s = %lld", key, json_integer_value(j_val));
       }
       break;
 
       case JSON_REAL: {
-        asprintf(&tmp_sub, "%s = %lf", key, json_real_value(j_val));
+        ast_asprintf(&tmp_sub, "%s = %lf", key, json_real_value(j_val));
       }
       break;
 
       // true
       case JSON_TRUE: {
-        asprintf(&tmp_sub, "%s = \"%s\"", key, "true");
+        ast_asprintf(&tmp_sub, "%s = \"%s\"", key, "true");
       }
       break;
 
       // false
       case JSON_FALSE: {
-        asprintf(&tmp_sub, "%s = \"%s\"", key, "false");
+        ast_asprintf(&tmp_sub, "%s = \"%s\"", key, "false");
       }
       break;
 
       case JSON_NULL: {
-        asprintf(&tmp_sub, "%s = %s", key, "null");
+        ast_asprintf(&tmp_sub, "%s = %s", key, "null");
       }
       break;
 
@@ -615,7 +615,7 @@ char* db_ctx_get_update_str(const json_t* j_data)
         tmp_sqlite_buf = sqlite3_mprintf("%q", tmp);
         sfree(tmp);
 
-        asprintf(&tmp_sub, "%s = '%s'", key, tmp_sqlite_buf);
+        ast_asprintf(&tmp_sub, "%s = '%s'", key, tmp_sqlite_buf);
         sqlite3_free(tmp_sqlite_buf);
       }
       break;
@@ -624,7 +624,7 @@ char* db_ctx_get_update_str(const json_t* j_data)
         // Not done yet.
         // we don't support another types.
         ast_log(LOG_WARNING, "Wrong type input. We don't handle this.\n");
-        asprintf(&tmp_sub, "%s = %s", key, "null");
+        ast_asprintf(&tmp_sub, "%s = %s", key, "null");
       }
       break;
     }
@@ -632,16 +632,16 @@ char* db_ctx_get_update_str(const json_t* j_data)
     // copy/set previous sql.
     sfree(tmp);
     if(is_first == true) {
-      asprintf(&tmp, "%s", tmp_sub);
+      ast_asprintf(&tmp, "%s", tmp_sub);
       is_first = false;
     }
     else {
-      asprintf(&tmp, "%s, %s", res, tmp_sub);
+      ast_asprintf(&tmp, "%s, %s", res, tmp_sub);
     }
     sfree(res);
     sfree(tmp_sub);
 
-    res = strdup(tmp);
+    res = ast_strdup(tmp);
     sfree(tmp);
   }
   json_decref(j_data_cp);
@@ -679,35 +679,35 @@ char* db_ctx_get_condition_str(const json_t* j_data)
     switch(type) {
       // string
       case JSON_STRING: {
-        asprintf(&tmp_sub, "%s = \'%s\'", key, json_string_value(j_val));
+        ast_asprintf(&tmp_sub, "%s = \'%s\'", key, json_string_value(j_val));
       }
       break;
 
       // numbers
       case JSON_INTEGER: {
-        asprintf(&tmp_sub, "%s = %lld", key, json_integer_value(j_val));
+        ast_asprintf(&tmp_sub, "%s = %lld", key, json_integer_value(j_val));
       }
       break;
 
       case JSON_REAL: {
-        asprintf(&tmp_sub, "%s = %lf", key, json_real_value(j_val));
+        ast_asprintf(&tmp_sub, "%s = %lf", key, json_real_value(j_val));
       }
       break;
 
       // true
       case JSON_TRUE: {
-        asprintf(&tmp_sub, "%s = \"%s\"", key, "true");
+        ast_asprintf(&tmp_sub, "%s = \"%s\"", key, "true");
       }
       break;
 
       // false
       case JSON_FALSE: {
-        asprintf(&tmp_sub, "%s = \"%s\"", key, "false");
+        ast_asprintf(&tmp_sub, "%s = \"%s\"", key, "false");
       }
       break;
 
       case JSON_NULL: {
-        asprintf(&tmp_sub, "%s = %s", key, "null");
+        ast_asprintf(&tmp_sub, "%s = %s", key, "null");
       }
       break;
 
@@ -717,7 +717,7 @@ char* db_ctx_get_condition_str(const json_t* j_data)
         tmp_sqlite_buf = sqlite3_mprintf("%q", tmp);
         sfree(tmp);
 
-        asprintf(&tmp_sub, "%s = '%s'", key, tmp_sqlite_buf);
+        ast_asprintf(&tmp_sub, "%s = '%s'", key, tmp_sqlite_buf);
         sqlite3_free(tmp_sqlite_buf);
       }
       break;
@@ -726,7 +726,7 @@ char* db_ctx_get_condition_str(const json_t* j_data)
         // Not done yet.
         // we don't support another types.
         ast_log(LOG_WARNING, "Wrong type input. We don't handle this.\n");
-        asprintf(&tmp_sub, "%s = %s", key, "null");
+        ast_asprintf(&tmp_sub, "%s = %s", key, "null");
       }
       break;
     }
@@ -734,16 +734,16 @@ char* db_ctx_get_condition_str(const json_t* j_data)
     // copy/set previous sql.
     sfree(tmp);
     if(is_first == true) {
-      asprintf(&tmp, "%s", tmp_sub);
+      ast_asprintf(&tmp, "%s", tmp_sub);
       is_first = false;
     }
     else {
-      asprintf(&tmp, "%s and %s", res, tmp_sub);
+      ast_asprintf(&tmp, "%s and %s", res, tmp_sub);
     }
     sfree(res);
     sfree(tmp_sub);
 
-    res = strdup(tmp);
+    res = ast_strdup(tmp);
     sfree(tmp);
   }
   json_decref(j_data_cp);
@@ -890,14 +890,15 @@ bool db_ctx_load_db_all(db_ctx_t* ctx, const char* filename)
  */
 static int process_ddl_row(void* pData, int nColumns, char** values, char** columns)
 {
-  if (nColumns != 1) {
-    return 1; // Error
-  }
+	if (nColumns != 1) {
+		/* returns error */
+		return 1;
+	}
 
-  sqlite3* db = (sqlite3*)pData;
-  sqlite3_exec(db, values[0], NULL, NULL, NULL);
+	sqlite3* db = (sqlite3*)pData;
+	sqlite3_exec(db, values[0], NULL, NULL, NULL);
 
-  return 0;
+	return 0;
 }
 
 /**
@@ -906,16 +907,17 @@ static int process_ddl_row(void* pData, int nColumns, char** values, char** colu
  */
 static int process_dml_row(void *pData, int nColumns, char **values, char **columns)
 {
-  if (nColumns != 1) {
-    return 1; // Error
-  }
+	if (nColumns != 1) {
+		/* Returns error */
+		return 1;
+	}
 
-  sqlite3* db = (sqlite3*)pData;
+	sqlite3* db = (sqlite3*)pData;
 
-  char *stmt = sqlite3_mprintf("insert into main.%q select * from backup.%q", values[0], values[0]);
-  sqlite3_exec(db, stmt, NULL, NULL, NULL);
-  sqlite3_free(stmt);
+	char *stmt = sqlite3_mprintf("insert into main.%q select * from backup.%q", values[0], values[0]);
+	sqlite3_exec(db, stmt, NULL, NULL, NULL);
+	sqlite3_free(stmt);
 
-  return 0;
+	return 0;
 }
 

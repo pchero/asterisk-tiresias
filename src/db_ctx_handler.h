@@ -38,6 +38,8 @@ bool db_ctx_load_db_all(db_ctx_t* ctx, const char* filename);
 bool db_ctx_load_db_schema(db_ctx_t* ctx, const char* filename);
 bool db_ctx_load_db_data(db_ctx_t* ctx, const char* filename);
 
+bool db_ctx_update_item(db_ctx_t* ctx, const char* table, const char* key_column, const json_t* j_data);
+
 
 bool db_ctx_free(db_ctx_t* ctx);
 

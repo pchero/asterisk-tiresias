@@ -75,15 +75,16 @@ static char* tiresias_show_contexts(struct ast_cli_entry *e, int cmd, struct ast
 		return NULL;
 	}
 
-	ast_cli(a->fd, "%-36.36s\n", "Name");
+	ast_cli(a->fd, "%-36.36s %-70.70s\n", "Name", "Directory");
 
 	json_array_foreach(j_tmps, idx, j_tmp) {
 		if(j_tmp == NULL) {
 			continue;
 		}
 
-		ast_cli(a->fd, "%-36.36s\n",
-				json_string_value(json_object_get(j_tmp, "name")) ? : ""
+		ast_cli(a->fd, "%-36.36s %-70.70s\n",
+				json_string_value(json_object_get(j_tmp, "name")) ? : "",
+				json_string_value(json_object_get(j_tmp, "directory")) ? : ""
 				);
 
 	}
