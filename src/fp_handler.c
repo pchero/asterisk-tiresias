@@ -10,13 +10,13 @@
 #include <asterisk.h>
 #include <asterisk/logger.h>
 #include <asterisk/utils.h>
+#include <asterisk/json.h>
 
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
 #include <aubio/aubio.h>
 #include <math.h>
-#include <jansson.h>
 #include <openssl/md5.h>
 #include <libgen.h>
 #include <uuid/uuid.h>
@@ -30,11 +30,13 @@
 #define DEF_DATABASE_NAME			":memory:"
 #define DEF_BACKUP_DATABASE			"/var/lib/asterisk/third-party/tiresias/audio_recongition.db"
 
-#define DEF_AUBIO_HOPSIZE		256
-#define DEF_AUBIO_BUFSIZE		512
+//#define DEF_AUBIO_HOPSIZE		256
+//#define DEF_AUBIO_BUFSIZE		512
+#define DEF_AUBIO_HOPSIZE		512
+#define DEF_AUBIO_BUFSIZE		1024
 #define DEF_AUBIO_SAMPLERATE	0		// read samplerate from the file
 #define DEF_AUBIO_FILTER		40
-#define DEF_AUBIO_COEFS			13
+#define DEF_AUBIO_COEFS			2
 
 #define DEF_SEARCH_TOLERANCE		0.001
 
@@ -46,10 +48,11 @@ static bool init_database(void);
 
 static int create_audio_list_info(const char* context, const char* filename, const char* uuid);
 static bool create_audio_fingerprint_info(const char* context, const char* filename, const char* uuid);
-static json_t* create_audio_fingerprints(const char* filename, const char* uuid);
+static struct ast_json* create_audio_fingerprints(const char* filename, const char* uuid);
+static bool insert_audio_fingerprints(const char* context, const char* filename, const char* uuid);
 
-static json_t* get_audio_list_info(const char* uuid);
-static json_t* get_audio_list_info_by_context_and_hash(const char* context, const char* hash);
+static struct ast_json* get_audio_list_info(const char* uuid);
+static struct ast_json* get_audio_list_info_by_context_and_hash(const char* context, const char* hash);
 static char* create_file_hash(const char* filename);
 
 static bool create_context_list_info(const char* name, const char* directory, const bool replace);
@@ -113,7 +116,7 @@ bool fp_term(void)
 bool fp_delete_audio_list_info(const char* uuid)
 {
 	int ret;
-	json_t* j_tmp;
+	struct ast_json* j_tmp;
 	char* sql;
 	db_ctx_t* db_ctx;
 
@@ -137,7 +140,7 @@ bool fp_delete_audio_list_info(const char* uuid)
 	sfree(sql);
 	if(ret == false) {
 		ast_log(LOG_WARNING, "Could not delete audio list info. uuid[%s]\n", uuid);
-		json_decref(j_tmp);
+		ast_json_unref(j_tmp);
 		return false;
 	}
 
@@ -149,7 +152,7 @@ bool fp_delete_audio_list_info(const char* uuid)
 	sfree(sql);
 	if(ret == false) {
 		ast_log(LOG_WARNING, "Could not delete audio fingerprint info. audio_uuid[%s]\n", uuid);
-		json_decref(j_tmp);
+		ast_json_unref(j_tmp);
 		return false;
 	}
 
@@ -177,7 +180,7 @@ bool fp_craete_audio_list_info(const char* context, const char* filename)
 		return false;
 	}
 	else if(ret == 0) {
-		ast_log(LOG_VERBOSE, "The given audio file is already exist in the list. context[%s], filename[%s]", context, filename);
+		ast_log(LOG_VERBOSE, "The given audio file is already exist in the list. context[%s], filename[%s]\n", context, filename);
 		sfree(uuid);
 		return true;
 	}
@@ -202,7 +205,7 @@ bool fp_craete_audio_list_info(const char* context, const char* filename)
  * @param tolerance
  * @return
  */
-json_t* fp_search_fingerprint_info(
+struct ast_json* fp_search_fingerprint_info(
 		const char* context,
 		const char* filename,
 		const int coefs,
@@ -215,13 +218,13 @@ json_t* fp_search_fingerprint_info(
 	char* tmp;
 	char* tmp_max;
 	char* tablename;
-	json_t* j_fprints;
-	json_t* j_tmp;
-	json_t* j_search;
-	json_t* j_res;
-	int idx;
+	struct ast_json* j_fprints;
+	struct ast_json* j_tmp;
+	struct ast_json* j_search;
+	struct ast_json* j_res;
 	int frame_count;
 	int i;
+	int j;
 	db_ctx_t* db_ctx;
 	double tole;
 
@@ -270,40 +273,33 @@ json_t* fp_search_fingerprint_info(
 	ast_log(LOG_DEBUG, "Created search info.\n");
 
 	// search
-	frame_count = json_array_size(j_fprints);
+	frame_count = ast_json_array_size(j_fprints);
 	int count = 0;
-	json_array_foreach(j_fprints, idx, j_tmp) {
-//		ast_asprintf(&sql, "insert into %s select * from audio_fingerprint where "
-//				" context = '%s' "
-//				" and max1 >= %f "
-//				" and max1 <= %f ",
-//				tablename,
-//				context,
-//				json_real_value(json_object_get(j_tmp, "max1")) - tole,
-//				json_real_value(json_object_get(j_tmp, "max1")) + tole
-//				);
+
+	for(i = 0; i < frame_count; i++) {
+		j_tmp = ast_json_array_get(j_fprints, i);
 
 		ast_asprintf(&sql, "insert into %s select * from audio_fingerprint where "
 				" max1 >= %f "
 				" and max1 <= %f ",
 				tablename,
-				json_real_value(json_object_get(j_tmp, "max1")) - tole,
-				json_real_value(json_object_get(j_tmp, "max1")) + tole
+				ast_json_real_get(ast_json_object_get(j_tmp, "max1")) - tole,
+				ast_json_real_get(ast_json_object_get(j_tmp, "max1")) + tole
 				);
 
 
 		// add more conditions if the more coefs has given.
-		for(i = 1; i < coefs; i++) {
-			ast_asprintf(&tmp_max, "max%d", i + 1);
+		for(j = 1; j < coefs; j++) {
+			ast_asprintf(&tmp_max, "max%d", j + 1);
 
 			ast_asprintf(&tmp, "%s and %s >= %f and %s <= %f",
 					sql,
 
 					tmp_max,
-					json_real_value(json_object_get(j_tmp, tmp_max)) - tole,
+					ast_json_real_get(ast_json_object_get(j_tmp, tmp_max)) - tole,
 
 					tmp_max,
-					json_real_value(json_object_get(j_tmp, tmp_max)) + tole
+					ast_json_real_get(ast_json_object_get(j_tmp, tmp_max)) + tole
 					);
 			sfree(tmp_max);
 			sfree(sql);
@@ -323,7 +319,7 @@ json_t* fp_search_fingerprint_info(
 		ast_log(LOG_DEBUG, "Check count. count[%d]\n", count);
 		count++;
 	}
-	json_decref(j_fprints);
+	ast_json_unref(j_fprints);
 	ast_log(LOG_DEBUG, "Inserted search info.\n");
 
 	// get result
@@ -341,7 +337,7 @@ json_t* fp_search_fingerprint_info(
 	if(ret == false) {
 		ast_log(LOG_WARNING, "Could not delete temp search table. tablename[%s]\n", tablename);
 		sfree(tablename);
-		json_decref(j_search);
+		ast_json_unref(j_search);
 		return false;
 	}
 	sfree(tablename);
@@ -354,17 +350,18 @@ json_t* fp_search_fingerprint_info(
 	ast_log(LOG_DEBUG, "Search complete.\n");
 
 	// create result
-	j_res = get_audio_list_info(json_string_value(json_object_get(j_search, "audio_uuid")));
+	j_res = get_audio_list_info(ast_json_string_get(ast_json_object_get(j_search, "audio_uuid")));
 	if(j_res == NULL) {
 		ast_log(LOG_WARNING, "Could not find audio list info.\n");
-		json_decref(j_search);
+		ast_json_unref(j_search);
 		return NULL;
 	}
 	ast_log(LOG_DEBUG, "Created result.\n");
 
-	json_object_set_new(j_res, "frame_count", json_integer(frame_count));
-	json_object_set(j_res, "match_count", json_object_get(j_search, "count(*)"));
-	json_decref(j_search);
+
+	ast_json_object_set(j_res, "frame_count", ast_json_integer_create(frame_count));
+	ast_json_object_set(j_res, "match_count", ast_json_ref(ast_json_object_get(j_search, "count(*)")));
+	ast_json_unref(j_search);
 
 	return j_res;
 }
@@ -373,11 +370,11 @@ json_t* fp_search_fingerprint_info(
  * Returns all list of fingerprinted info.
  * @return
  */
-json_t* fp_get_audio_lists_all(void)
+struct ast_json* fp_get_audio_lists_all(void)
 {
 	char* sql;
-	json_t* j_res;
-	json_t* j_tmp;
+	struct ast_json* j_res;
+	struct ast_json* j_tmp;
 	db_ctx_t* db_ctx;
 
 	// get result
@@ -386,24 +383,24 @@ json_t* fp_get_audio_lists_all(void)
 	db_ctx_query(db_ctx, sql);
 	sfree(sql);
 
-	j_res = json_array();
+	j_res = ast_json_array_create();
 	while(1) {
 		j_tmp = db_ctx_get_record(db_ctx);
 		if(j_tmp == NULL) {
 			break;
 		}
 
-		json_array_append_new(j_res, j_tmp);
+		ast_json_array_append(j_res, j_tmp);
 	}
 	destroy_db_ctx(db_ctx);
 
 	return j_res;
 }
 
-json_t* fp_get_audio_lists_by_contextname(const char* name)
+struct ast_json* fp_get_audio_lists_by_contextname(const char* name)
 {
-	json_t* j_res;
-	json_t* j_tmp;
+	struct ast_json* j_res;
+	struct ast_json* j_tmp;
 	char* sql;
 	db_ctx_t* db_ctx;
 
@@ -417,14 +414,14 @@ json_t* fp_get_audio_lists_by_contextname(const char* name)
 	db_ctx_query(db_ctx, sql);
 	sfree(sql);
 
-	j_res = json_array();
+	j_res = ast_json_array_create();
 	while(1) {
 		j_tmp = db_ctx_get_record(db_ctx);
 		if(j_tmp == NULL) {
 			break;
 		}
 
-		json_array_append_new(j_res, j_tmp);
+		ast_json_array_append(j_res, j_tmp);
 	}
 	destroy_db_ctx(db_ctx);
 
@@ -444,7 +441,7 @@ static int create_audio_list_info(const char* context, const char* filename, con
 	char* hash;
 	char* tmp;
 	const char* name;
-	json_t* j_tmp;
+	struct ast_json* j_tmp;
 
 	if((context == NULL) || (filename == NULL) || (uuid == NULL)) {
 		ast_log(LOG_WARNING, "Wrong input parameter.\n");
@@ -471,18 +468,18 @@ static int create_audio_list_info(const char* context, const char* filename, con
 	// craete data
 	tmp = ast_strdup(filename);
 	name = basename(tmp);
-	sfree(tmp);
-	j_tmp = json_pack("{s:s, s:s, s:s, s:s}",
+	j_tmp = ast_json_pack("{s:s, s:s, s:s, s:s}",
 			"uuid", 	uuid,
 			"name",		name,
 			"context",	context,
 			"hash",		hash
 			);
+	sfree(tmp);
 	sfree(hash);
 
 	// insert
 	ret = db_ctx_insert(g_db_ctx, "audio_list", j_tmp);
-	json_decref(j_tmp);
+	ast_json_unref(j_tmp);
 	if(ret == false) {
 		ast_log(LOG_ERROR, "Could not create fingerprint info.\n");
 		return -1;
@@ -501,8 +498,8 @@ static bool create_audio_fingerprint_info(const char* context, const char* filen
 {
 	int ret;
 	int idx;
-	json_t* j_fprint;
-	json_t* j_fprints;
+	struct ast_json* j_fprint;
+	struct ast_json* j_fprints;
 
 	if((filename == NULL) || (uuid == NULL)) {
 		ast_log(LOG_WARNING, "Wrong input parameter.\n");
@@ -518,29 +515,34 @@ static bool create_audio_fingerprint_info(const char* context, const char* filen
 	}
 
 	// insert data
-	json_array_foreach(j_fprints, idx, j_fprint) {
-		json_object_set_new(j_fprint, "context", json_string(context));
+	for(idx = 0; idx < ast_json_array_size(j_fprints); idx++) {
+		j_fprint = ast_json_array_get(j_fprints, idx);
+		if(j_fprint == NULL) {
+			continue;
+		}
+
+		ast_json_object_set(j_fprint, "context", ast_json_string_create(context));
 		ret = db_ctx_insert(g_db_ctx, "audio_fingerprint", j_fprint);
 		if(ret == false) {
 			ast_log(LOG_WARNING, "Could not insert fingerprint data.\n");
 			continue;
 		}
 	}
-	json_decref(j_fprints);
+	ast_json_unref(j_fprints);
 
 	return true;
 }
 
-static json_t* create_audio_fingerprints(const char* filename, const char* uuid)
+static struct ast_json* create_audio_fingerprints(const char* filename, const char* uuid)
 {
-	json_t* j_res;
-	json_t* j_tmp;
+	struct ast_json* j_res;
+	struct ast_json* j_tmp;
 	unsigned int reads;
 	int count;
 	int samplerate;
 	char* source;
-	char* tmp;
 	int i;
+	char col_max[10];
 
 	aubio_pvoc_t* pv;
 	cvec_t*	fftgrain;
@@ -584,7 +586,7 @@ static json_t* create_audio_fingerprints(const char* filename, const char* uuid)
 		return NULL;
 	}
 
-	j_res = json_array();
+	j_res = ast_json_array_create();
 	count = 0;
 	while(1) {
 		aubio_source_do(aubio_src, mfcc_buf, &reads);
@@ -599,14 +601,13 @@ static json_t* create_audio_fingerprints(const char* filename, const char* uuid)
 		aubio_mfcc_do(mfcc, fftgrain, mfcc_out);
 
 		// create mfcc data
-		j_tmp = json_pack("{s:i, s:s}",
+		j_tmp = ast_json_pack("{s:i, s:s}",
 				"frame_idx",	count,
 				"audio_uuid",	uuid
 				);
 		for(i = 0; i < DEF_AUBIO_COEFS; i++) {
-			ast_asprintf(&tmp, "max%d", i + 1);
-			json_object_set_new(j_tmp, tmp, json_real(10 * log10(fabs(mfcc_out->data[i]))));
-			sfree(tmp);
+			snprintf(col_max, sizeof(col_max), "max%d", i + 1);
+			ast_json_object_set(j_tmp, col_max, ast_json_real_create(10 * log10(fabs(mfcc_out->data[i]))));
 		}
 
 		if(j_tmp == NULL) {
@@ -614,8 +615,7 @@ static json_t* create_audio_fingerprints(const char* filename, const char* uuid)
 			continue;
 		}
 
-		ast_log(LOG_DEBUG, "Check loop. count[%d]\n", count);
-		json_array_append_new(j_res, j_tmp);
+		ast_json_array_append(j_res, j_tmp);
 		count++;
 	}
 
@@ -645,7 +645,9 @@ static bool init_database(void)
 	sql = "create table context_list("
 
 			"   name        varchar(255),"
-			"   directory   varchar(1023)"
+			"   directory   varchar(1023),"
+
+			"   primary key(name)"
 			");";
 	ret = db_ctx_exec(g_db_ctx, sql);
 	if(ret == false) {
@@ -761,10 +763,10 @@ static char* create_file_hash(const char* filename)
 	return res;
 }
 
-static json_t* get_audio_list_info_by_context_and_hash(const char* context, const char* hash)
+static struct ast_json* get_audio_list_info_by_context_and_hash(const char* context, const char* hash)
 {
 	char* sql;
-	json_t* j_res;
+	struct ast_json* j_res;
 	db_ctx_t* db_ctx;
 
 	if((context == NULL) || (hash == NULL)) {
@@ -786,10 +788,10 @@ static json_t* get_audio_list_info_by_context_and_hash(const char* context, cons
 	return j_res;
 }
 
-static json_t* get_audio_list_info(const char* uuid)
+static struct ast_json* get_audio_list_info(const char* uuid)
 {
 	char* sql;
-	json_t* j_res;
+	struct ast_json* j_res;
 	db_ctx_t* db_ctx;
 
 	if(uuid == NULL) {
@@ -866,11 +868,11 @@ static bool delete_temp_search_table(const char* tablename)
 	return true;
 }
 
-json_t* fp_get_context_lists_all(void)
+struct ast_json* fp_get_context_lists_all(void)
 {
 	char* sql;
-	json_t* j_res;
-	json_t* j_tmp;
+	struct ast_json* j_res;
+	struct ast_json* j_tmp;
 	db_ctx_t* db_ctx;
 
 	ast_asprintf(&sql, "%s", "select * from context_list;");
@@ -878,24 +880,24 @@ json_t* fp_get_context_lists_all(void)
 	db_ctx_query(db_ctx, sql);
 	sfree(sql);
 
-	j_res = json_array();
+	j_res = ast_json_array_create();
 	while(1) {
 		j_tmp = db_ctx_get_record(db_ctx);
 		if(j_tmp == NULL) {
 			break;
 		}
 
-		json_array_append_new(j_res, j_tmp);
+		ast_json_array_append(j_res, j_tmp);
 	}
 	destroy_db_ctx(db_ctx);
 
 	return j_res;
 }
 
-json_t* fp_get_context_list_info(const char* name)
+struct ast_json* fp_get_context_list_info(const char* name)
 {
 	char* sql;
-	json_t* j_res;
+	struct ast_json* j_res;
 	db_ctx_t* db_ctx;
 
 	if(name == NULL) {
@@ -921,14 +923,14 @@ json_t* fp_get_context_list_info(const char* name)
 static bool create_context_list_info(const char* name, const char* directory, const bool replace)
 {
 	int ret;
-	json_t* j_data;
+	struct ast_json* j_data;
 
 	if(name == NULL) {
 		ast_log(LOG_WARNING, "Wrong input parameter.\n");
 		return false;
 	}
 
-	j_data = json_pack("{s:s, s:s}",
+	j_data = ast_json_pack("{s:s, s:s}",
 			"name",			name,
 			"directory",	directory
 			);
@@ -939,7 +941,7 @@ static bool create_context_list_info(const char* name, const char* directory, co
 	else {
 		ret = db_ctx_insert_or_replace(g_db_ctx, "context_list", j_data);
 	}
-	json_decref(j_data);
+	ast_json_unref(j_data);
 	if(ret == false) {
 		ast_log(LOG_WARNING, "Could not insert data into database.\n");
 		return false;
@@ -997,9 +999,9 @@ bool fp_delete_context_list_info(const char* name)
 {
 	int ret;
 	int idx;
-	json_t* j_context;
-	json_t* j_audio_lists;
-	json_t* j_audio_list;
+	struct ast_json* j_context;
+	struct ast_json* j_audio_lists;
+	struct ast_json* j_audio_list;
 	const char* uuid;
 
 	if(name == NULL) {
@@ -1021,8 +1023,13 @@ bool fp_delete_context_list_info(const char* name)
 	}
 
 	/* delete all audio_list info of belongings */
-	json_array_foreach(j_audio_lists, idx, j_audio_list) {
-		uuid = json_string_value(json_object_get(j_audio_list, "uuid"));
+	for(idx = 0; idx < ast_json_array_size(j_audio_lists); idx++) {
+		j_audio_list = ast_json_array_get(j_audio_lists, idx);
+		if(j_audio_list == NULL) {
+			continue;
+		}
+
+		uuid = ast_json_string_get(ast_json_object_get(j_audio_list, "uuid"));
 		if(uuid == NULL) {
 			continue;
 		}
@@ -1034,7 +1041,7 @@ bool fp_delete_context_list_info(const char* name)
 			continue;
 		}
 	}
-	json_decref(j_audio_lists);
+	ast_json_unref(j_audio_lists);
 
 	/* delete context */
 	ret = delete_context_list_info(name);

@@ -55,8 +55,8 @@ bool cli_term(void)
 static char* tiresias_show_contexts(struct ast_cli_entry *e, int cmd, struct ast_cli_args *a)
 {
 	int idx;
-	json_t* j_tmps;
-	json_t* j_tmp;
+	struct ast_json* j_tmps;
+	struct ast_json* j_tmp;
 
 	if(cmd == CLI_INIT) {
 		e->command = "tiresias show contexts";
@@ -77,18 +77,19 @@ static char* tiresias_show_contexts(struct ast_cli_entry *e, int cmd, struct ast
 
 	ast_cli(a->fd, "%-36.36s %-70.70s\n", "Name", "Directory");
 
-	json_array_foreach(j_tmps, idx, j_tmp) {
+	for(idx = 0; idx < ast_json_array_size(j_tmps); idx++) {
+		j_tmp = ast_json_array_get(j_tmps, idx);
 		if(j_tmp == NULL) {
 			continue;
 		}
 
 		ast_cli(a->fd, "%-36.36s %-70.70s\n",
-				json_string_value(json_object_get(j_tmp, "name")) ? : "",
-				json_string_value(json_object_get(j_tmp, "directory")) ? : ""
+				ast_json_string_get(ast_json_object_get(j_tmp, "name")) ? : "",
+				ast_json_string_get(ast_json_object_get(j_tmp, "directory")) ? : ""
 				);
 
 	}
-	json_decref(j_tmps);
+	ast_json_unref(j_tmps);
 
 	return CLI_SUCCESS;
 }
@@ -103,8 +104,8 @@ static char* tiresias_show_contexts(struct ast_cli_entry *e, int cmd, struct ast
 static char* tiresias_show_audios(struct ast_cli_entry *e, int cmd, struct ast_cli_args *a)
 {
 	int idx;
-	json_t* j_tmp;
-	json_t* j_tmps;
+	struct ast_json* j_tmp;
+	struct ast_json* j_tmps;
 
 	if(cmd == CLI_INIT) {
 		e->command = "tiresias show audios";
@@ -130,15 +131,20 @@ static char* tiresias_show_audios(struct ast_cli_entry *e, int cmd, struct ast_c
 
 	ast_cli(a->fd, "%-36.36s %-45.45s %-36.36s %-36.36s\n", "Uuid", "Name", "Context", "Hash");
 
-	json_array_foreach(j_tmps, idx, j_tmp) {
+	for(idx = 0; idx < ast_json_array_size(j_tmps); idx++) {
+		j_tmp = ast_json_array_get(j_tmps, idx);
+		if(j_tmp == NULL) {
+			continue;
+		}
+
 		ast_cli(a->fd, "%-36.36s %-45.45s %-36.36s %-36.36s\n",
-				json_string_value(json_object_get(j_tmp, "uuid")) ? : "",
-				json_string_value(json_object_get(j_tmp, "name")) ? : "",
-				json_string_value(json_object_get(j_tmp, "context")) ? : "",
-				json_string_value(json_object_get(j_tmp, "hash")) ? : ""
+				ast_json_string_get(ast_json_object_get(j_tmp, "uuid")) ? : "",
+				ast_json_string_get(ast_json_object_get(j_tmp, "name")) ? : "",
+				ast_json_string_get(ast_json_object_get(j_tmp, "context")) ? : "",
+				ast_json_string_get(ast_json_object_get(j_tmp, "hash")) ? : ""
 				);
 	}
-	json_decref(j_tmps);
+	ast_json_unref(j_tmps);
 
 	return CLI_SUCCESS;
 }

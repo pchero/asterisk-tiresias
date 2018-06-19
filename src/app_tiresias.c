@@ -64,7 +64,7 @@ static bool init(void)
 	int ret;
 
 	if(g_app != NULL) {
-		json_decref(g_app->j_conf);
+		ast_json_unref(g_app->j_conf);
 		ast_free(g_app);
 	}
 	g_app = ast_calloc(1, sizeof(app));
@@ -138,7 +138,7 @@ static bool term(void)
 		ast_log(LOG_NOTICE, "Could not terminate application correctly.\n");
 	}
 
-	json_decref(g_app->j_conf);
+	ast_json_unref(g_app->j_conf);
 	sfree(g_app);
 
 	return true;
@@ -174,12 +174,12 @@ static bool init_config(void)
 {
 	struct ast_variable *var;
 	struct ast_config *cfg;
-	json_t* j_tmp;
-	json_t* j_conf;
+	struct ast_json* j_tmp;
+	struct ast_json* j_conf;
 	struct ast_flags config_flags = { 0 };
 	char *cat;
 
-	j_conf = json_object();
+	j_conf = ast_json_object_create();
 
 	cfg = ast_config_load(DEF_CONFNAME, config_flags);
 	if (cfg == CONFIG_STATUS_FILEMISSING || cfg == CONFIG_STATUS_FILEINVALID) {
@@ -194,17 +194,17 @@ static bool init_config(void)
 			break;
 		}
 
-		if(json_object_get(j_conf, cat) == NULL) {
-			json_object_set_new(j_conf, cat, json_object());
+		if(ast_json_object_get(j_conf, cat) == NULL) {
+			ast_json_object_set(j_conf, cat, ast_json_object_create());
 		}
-		j_tmp = json_object_get(j_conf, cat);
+		j_tmp = ast_json_object_get(j_conf, cat);
 
 		var = ast_variable_browse(cfg, cat);
 		while(1) {
 			if(var == NULL) {
 				break;
 			}
-			json_object_set_new(j_tmp, var->name, json_string(var->value));
+			ast_json_object_set(j_tmp, var->name, ast_json_string_create(var->value));
 			ast_log(LOG_VERBOSE, "Loading conf. name[%s], value[%s]\n", var->name, var->value);
 			var = var->next;
 		}
@@ -212,7 +212,7 @@ static bool init_config(void)
 	ast_config_destroy(cfg);
 
 	if(g_app->j_conf != NULL) {
-		json_decref(g_app->j_conf);
+		ast_json_unref(g_app->j_conf);
 	}
 	g_app->j_conf = j_conf;
 
@@ -230,9 +230,10 @@ static bool init_context(void)
 	const char* name;
 	const char* directory;
 	int idx;
-	json_t* j_contexts;
-	json_t* j_context;
-	json_t* j_tmp;
+	struct ast_json* j_contexts;
+	struct ast_json* j_context;
+	struct ast_json* j_tmp;
+	struct ast_json_iter* iter;
 
 	/* validate contexts */
 	j_contexts = fp_get_context_lists_all();
@@ -242,14 +243,19 @@ static bool init_context(void)
 	}
 
 	/* delete the context if the context is not exists in the conf */
-	json_array_foreach(j_contexts, idx, j_context) {
-		tmp_const = json_string_value(json_object_get(j_context, "name"));
+	for(idx = 0; idx < ast_json_array_size(j_contexts); idx++) {
+		j_context = ast_json_array_get(j_contexts, idx);
+		if(j_context == NULL) {
+			continue;
+		}
+
+		tmp_const = ast_json_string_get(ast_json_object_get(j_context, "name"));
 		if(tmp_const == NULL) {
 			ast_log(LOG_WARNING, "Could not get context name info.\n");
 			continue;
 		}
 
-		j_tmp = json_object_get(g_app->j_conf, tmp_const);
+		j_tmp = ast_json_object_get(g_app->j_conf, tmp_const);
 		if(j_tmp != NULL) {
 			continue;
 		}
@@ -263,34 +269,45 @@ static bool init_context(void)
 
 		ast_log(LOG_NOTICE, "Delete context_list info. name[%s]\n", tmp_const);
 	}
-	json_decref(j_contexts);
+	ast_json_unref(j_contexts);
 
 	/* create context if not exist */
-	json_object_foreach(g_app->j_conf, name, j_tmp) {
+	iter = ast_json_object_iter(g_app->j_conf);
+	while(1) {
+		if(iter == NULL) {
+			break;
+		}
+
+		name = ast_json_object_iter_key(iter);
+		j_tmp = ast_json_object_iter_value(iter);
+
 		if(name == NULL) {
-			continue;
+			goto next;
 		}
 		ast_log(LOG_DEBUG, "Checking context info. context[%s]\n", name);
 
 		/* if it's a global context, just continue */
 		ret = strcmp(name, DEF_CONF_GLOBAL);
 		if(ret == 0) {
-			continue;
+			goto next;
 		}
 
 		/* get directory info */
-		directory = json_string_value(json_object_get(j_tmp, "directory"));
+		directory = ast_json_string_get(ast_json_object_get(j_tmp, "directory"));
 		if(directory == NULL) {
 			ast_log(LOG_DEBUG, "Could not get directory option.\n");
-			continue;
+			goto next;
 		}
 
 		/* create or replace context_list info */
 		ret = fp_create_context_list_info(name, directory, true);
 		if(ret == false) {
 			ast_log(LOG_ERROR, "Could not create or update context_list info. name[%s], directory[%s]", name, directory);
-			continue;
+			goto next;
 		}
+
+		next:
+			iter = ast_json_object_iter_next(g_app->j_conf, iter);
 	}
 
 	return true;
@@ -305,12 +322,12 @@ static bool init_audio(void)
 	int ret;
 	int i;
 	int count;
-    struct dirent **namelist;
-    char* tmp;
+	struct dirent **namelist;
+	char* tmp;
 	const char* context_name;
 	const char* directory;
-	json_t* j_contexts;
-	json_t* j_context;
+	struct ast_json* j_contexts;
+	struct ast_json* j_context;
 	int idx;
 
 	j_contexts = fp_get_context_lists_all();
@@ -319,15 +336,21 @@ static bool init_audio(void)
 		return false;
 	}
 
-	json_array_foreach(j_contexts, idx, j_context) {
-		context_name = json_string_value(json_object_get(j_context, "name"));
+	for(idx = 0; idx < ast_json_array_size(j_contexts); idx++) {
+
+		j_context = ast_json_array_get(j_contexts, idx);
+		if(j_context == NULL) {
+			continue;
+		}
+
+		context_name = ast_json_string_get(ast_json_object_get(j_context, "name"));
 		if(context_name == NULL) {
 			ast_log(LOG_WARNING, "Could not context name info.\n");
 			continue;
 		}
 
 		/* get directory info */
-		directory = json_string_value(json_object_get(j_context, "directory"));
+		directory = ast_json_string_get(ast_json_object_get(j_context, "directory"));
 		if(directory == NULL) {
 			ast_log(LOG_VERBOSE, "Could not get directory info. context[%s]\n", context_name);
 			continue;

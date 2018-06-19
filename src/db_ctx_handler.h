@@ -8,9 +8,10 @@
 #ifndef DB_CTX_HANDLER_H_
 #define DB_CTX_HANDLER_H_
 
+#include <asterisk/json.h>
+
 #include <sqlite3.h>
 #include <stdbool.h>
-#include <jansson.h>
 
 typedef struct _db_ctx_t
 {
@@ -24,22 +25,19 @@ void db_ctx_term(db_ctx_t* ctx);
 
 bool db_ctx_exec(db_ctx_t* ctx, const char* query);
 bool db_ctx_query(db_ctx_t* ctx, const char* query);
-json_t* db_ctx_get_record(db_ctx_t* ctx);
+struct ast_json* db_ctx_get_record(db_ctx_t* ctx);
 
-bool db_ctx_insert(db_ctx_t* ctx, const char* table, const json_t* j_data);
-bool db_ctx_insert_or_replace(db_ctx_t* ctx, const char* table, const json_t* j_data);
+bool db_ctx_insert(db_ctx_t* ctx, const char* table, const struct ast_json* j_data);
+bool db_ctx_insert_or_replace(db_ctx_t* ctx, const char* table, const struct ast_json* j_data);
 
-char* db_ctx_get_update_str(const json_t* j_data);
-char* db_ctx_get_condition_str(const json_t* j_data);
+char* db_ctx_get_update_str(const struct ast_json* j_data);
+char* db_ctx_get_condition_str(const struct ast_json* j_data);
 
 bool db_ctx_backup(db_ctx_t* ctx, const char *filename);
 
 bool db_ctx_load_db_all(db_ctx_t* ctx, const char* filename);
 bool db_ctx_load_db_schema(db_ctx_t* ctx, const char* filename);
 bool db_ctx_load_db_data(db_ctx_t* ctx, const char* filename);
-
-bool db_ctx_update_item(db_ctx_t* ctx, const char* table, const char* key_column, const json_t* j_data);
-
 
 bool db_ctx_free(db_ctx_t* ctx);
 
