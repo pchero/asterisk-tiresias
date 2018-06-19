@@ -29,7 +29,7 @@ typedef struct {
 static bool db_ctx_connect(db_ctx_t* ctx, const char* filename);
 static db_ctx_t* db_ctx_create(void);
 static int db_ctx_busy_handler(void *data, int retry);
-static bool db_ctx_insert_basic(db_ctx_t* ctx, const char* table, const json_t* j_data, int replace);
+static bool db_ctx_insert_basic(db_ctx_t* ctx, const char* table, const struct ast_json* j_data, int replace);
 
 static int process_ddl_row(void* pData, int nColumns, char** values, char** columns);
 static int process_dml_row(void *pData, int nColumns, char **values, char **columns);
@@ -264,94 +264,93 @@ bool db_ctx_exec(db_ctx_t* ctx, const char* query)
  * @param res
  * @return  success:json_t*, fail:NULL
  */
-json_t* db_ctx_get_record(db_ctx_t* ctx)
+struct ast_json* db_ctx_get_record(db_ctx_t* ctx)
 {
 	int ret;
 	int cols;
 	int i;
-	json_t* j_res;
-	json_t* j_tmp;
+	struct ast_json* j_res;
+	struct ast_json* j_tmp;
 	int type;
 	const char* tmp_const;
 
-  if(ctx == NULL) {
-    ast_log(LOG_WARNING, "Wrong input parameter.\n");
-    return NULL;
-  }
+	if(ctx == NULL) {
+	ast_log(LOG_WARNING, "Wrong input parameter.\n");
+	return NULL;
+	}
 
 	ret = sqlite3_step(ctx->stmt);
 	if(ret != SQLITE_ROW) {
 		if(ret != SQLITE_DONE) {
-		  ast_log(LOG_ERROR, "Could not patch the result. ret[%d], err[%s]\n", ret, sqlite3_errmsg(ctx->db));
+			ast_log(LOG_ERROR, "Could not patch the result. ret[%d], err[%s]\n", ret, sqlite3_errmsg(ctx->db));
 		}
 		return NULL;
 	}
 
 	cols = sqlite3_column_count(ctx->stmt);
-	j_res = json_object();
+	j_res = ast_json_object_create();
 	for(i = 0; i < cols; i++) {
 		j_tmp = NULL;
 		type = sqlite3_column_type(ctx->stmt, i);
 		switch(type) {
 			case SQLITE_INTEGER: {
-				j_tmp = json_integer(sqlite3_column_int(ctx->stmt, i));
+				j_tmp = ast_json_integer_create(sqlite3_column_int(ctx->stmt, i));
 			}
 			break;
 
 			case SQLITE_FLOAT: {
-				j_tmp = json_real(sqlite3_column_double(ctx->stmt, i));
+				j_tmp = ast_json_real_create(sqlite3_column_double(ctx->stmt, i));
 			}
 			break;
 
 			case SQLITE_NULL: {
-				j_tmp = json_null();
+				j_tmp = ast_json_null();
 			}
 			break;
 
-			case SQLITE3_TEXT:
-			{
-			  // if the text is loadable, create json object.
-			  tmp_const = (const char*)sqlite3_column_text(ctx->stmt, i);
-			  if(tmp_const == NULL) {
-			    j_tmp = json_null();
-			  }
-			  else {
-	        j_tmp = json_loads(tmp_const, JSON_DECODE_ANY, NULL);
-	        if(j_tmp == NULL) {
-	          j_tmp = json_string((const char*)sqlite3_column_text(ctx->stmt, i));
-	        }
-	        else {
-	          // check type
-            // the only array/object/string types are allowed
-	          // especially, we don't allow the JSON_NULL type at this point.
-	          // Cause the json_loads() consider the "null" string to JSON_NULL.
-	          // It's should be done at the above.
-            ret = json_typeof(j_tmp);
-            if((ret != JSON_ARRAY) && (ret != JSON_OBJECT) && (ret != JSON_STRING)) {
-              json_decref(j_tmp);
-              j_tmp = json_string((const char*)sqlite3_column_text(ctx->stmt, i));
-            }
-	        }
-			  }
+			case SQLITE3_TEXT: {
+				// if the text is loadable, create json object.
+				tmp_const = (const char*)sqlite3_column_text(ctx->stmt, i);
+				if(tmp_const == NULL) {
+					j_tmp = ast_json_null();
+				}
+				else {
+					j_tmp = ast_json_load_string(tmp_const, NULL);
+					if(j_tmp == NULL) {
+						j_tmp = ast_json_string_create((const char*)sqlite3_column_text(ctx->stmt, i));
+					}
+					else {
+						// check type
+						// the only array/object/string types are allowed
+						// especially, we don't allow the JSON_NULL type at this point.
+						// Cause the json_loads() consider the "null" string to JSON_NULL.
+						// It's should be done at the above.
+						ret = ast_json_typeof(j_tmp);
+						if((ret != AST_JSON_ARRAY) && (ret != AST_JSON_OBJECT) && (ret != AST_JSON_STRING)) {
+							ast_json_unref(j_tmp);
+							j_tmp = ast_json_string_create((const char*)sqlite3_column_text(ctx->stmt, i));
+						}
+					}
+				}
 			}
 			break;
 
 			case SQLITE_BLOB:
 			default:
 			{
-				// not done yet.
-			  ast_log(LOG_NOTICE, "Not supported type. type[%d]\n", type);
-				j_tmp = json_null();
+			// not done yet.
+			ast_log(LOG_NOTICE, "Not supported type. type[%d]\n", type);
+			j_tmp = ast_json_null();
 			}
 			break;
 		}
 
 		if(j_tmp == NULL) {
-		  ast_log(LOG_ERROR, "Could not parse result column. name[%s], type[%d]\n",
-					sqlite3_column_name(ctx->stmt, i), type);
-			j_tmp = json_null();
+		ast_log(LOG_ERROR, "Could not parse result column. name[%s], type[%d]\n",
+		sqlite3_column_name(ctx->stmt, i), type);
+		j_tmp = ast_json_null();
 		}
-		json_object_set_new(j_res, sqlite3_column_name(ctx->stmt, i), j_tmp);
+		ast_json_object_set(j_res, sqlite3_column_name(ctx->stmt, i), j_tmp);
 	}
 
 	return j_res;
@@ -363,7 +362,7 @@ json_t* db_ctx_get_record(db_ctx_t* ctx)
  * @param j_data
  * @return
  */
-bool db_ctx_insert(db_ctx_t* ctx, const char* table, const json_t* j_data)
+bool db_ctx_insert(db_ctx_t* ctx, const char* table, const struct ast_json* j_data)
 {
   int ret;
 
@@ -387,7 +386,7 @@ bool db_ctx_insert(db_ctx_t* ctx, const char* table, const json_t* j_data)
  * @param j_data
  * @return
  */
-bool db_ctx_insert_or_replace(db_ctx_t* ctx, const char* table, const json_t* j_data)
+bool db_ctx_insert_or_replace(db_ctx_t* ctx, const char* table, const struct ast_json* j_data)
 {
   int ret;
 
@@ -411,138 +410,149 @@ bool db_ctx_insert_or_replace(db_ctx_t* ctx, const char* table, const json_t* j_
  * @param j_data
  * @return
  */
-static bool db_ctx_insert_basic(db_ctx_t* ctx, const char* table, const json_t* j_data, int replace)
+static bool db_ctx_insert_basic(db_ctx_t* ctx, const char* table, const struct ast_json* j_data, int replace)
 {
-  char* sql;
-  json_t*     j_data_cp;
-  char*       tmp;
-  const char* key;
-  json_t*     j_val;
-  int         ret;
-  json_type   type;
-  char*       sql_keys;
-  char*       sql_values;
-  char*       tmp_sub;
-  char*       tmp_sqlite_buf; // sqlite3_mprintf
+	char* sql;
+	struct ast_json*     j_data_cp;
+	char*       tmp;
+	const char* key;
+	struct ast_json*     j_val;
+	int         ret;
+	enum ast_json_type   type;
+	char*       sql_keys;
+	char*       sql_values;
+	char*       tmp_sub;
+	char*       tmp_sqlite_buf; // sqlite3_mprintf
+	struct ast_json_iter* iter;
 
-  if((ctx == NULL) || (ctx->db == NULL) || (table == NULL) || (j_data == NULL)) {
-    ast_log(LOG_WARNING, "Wrong input parameter.\n");
-    return false;
-  }
+	if((ctx == NULL) || (ctx->db == NULL) || (table == NULL) || (j_data == NULL)) {
+		ast_log(LOG_WARNING, "Wrong input parameter.\n");
+		return false;
+	}
 
-  // copy original.
-  j_data_cp = json_deep_copy(j_data);
+	// copy original.
+	j_data_cp = ast_json_deep_copy(j_data);
 
-  tmp = NULL;
-  sql_keys  = NULL;
-  sql_values = NULL;
-  tmp_sub = NULL;
-  json_object_foreach(j_data_cp, key, j_val) {
+	tmp = NULL;
+	sql_keys  = NULL;
+	sql_values = NULL;
+	tmp_sub = NULL;
 
-    // key
-    if(sql_keys == NULL) {
-      ast_asprintf(&tmp, "%s", key);
-    }
-    else {
-      ast_asprintf(&tmp, "%s, %s", sql_keys, key);
-    }
-    sfree(sql_keys);
-    ast_asprintf(&sql_keys, "%s", tmp);
-    sfree(tmp);
+	iter = ast_json_object_iter(j_data_cp);
+	while(1) {
+		if(iter == NULL) {
+			break;
+		}
 
-    // value
-    sfree(tmp_sub);
+		key = ast_json_object_iter_key(iter);
+		j_val = ast_json_object_iter_value(iter);
 
-    // get type.
-    type = json_typeof(j_val);
-    switch(type) {
-      // string
-      case JSON_STRING: {
-        ast_asprintf(&tmp_sub, "\'%s\'", json_string_value(j_val));
-      }
-      break;
+		// key
+		if(sql_keys == NULL) {
+			ast_asprintf(&tmp, "%s", key);
+		}
+		else {
+			ast_asprintf(&tmp, "%s, %s", sql_keys, key);
+		}
+		sfree(sql_keys);
+		ast_asprintf(&sql_keys, "%s", tmp);
+		sfree(tmp);
 
-      // numbers
-      case JSON_INTEGER: {
-        ast_asprintf(&tmp_sub, "%lld", json_integer_value(j_val));
-      }
-      break;
+		// value
+		sfree(tmp_sub);
 
-      case JSON_REAL: {
-        ast_asprintf(&tmp_sub, "%f", json_real_value(j_val));
-      }
-      break;
+		// get type.
+		type = ast_json_typeof(j_val);
+		switch(type) {
+			// string
+			case AST_JSON_STRING: {
+				ast_asprintf(&tmp_sub, "\'%s\'", ast_json_string_get(j_val));
+			}
+			break;
 
-      // true
-      case JSON_TRUE: {
-        ast_asprintf(&tmp_sub, "\"%s\"", "true");
-      }
-      break;
+			// numbers
+			case AST_JSON_INTEGER: {
+				ast_asprintf(&tmp_sub, "%ld", ast_json_integer_get(j_val));
+			}
+			break;
 
-      // false
-      case JSON_FALSE: {
-        ast_asprintf(&tmp_sub, "\"%s\"", "false");
-      }
-      break;
+			case AST_JSON_REAL: {
+				ast_asprintf(&tmp_sub, "%f", ast_json_real_get(j_val));
+			}
+			break;
 
-      case JSON_NULL: {
-        ast_asprintf(&tmp_sub, "%s", "null");
-      }
-      break;
+			// true
+			case AST_JSON_TRUE: {
+				ast_asprintf(&tmp_sub, "\"%s\"", "true");
+			}
+			break;
 
-      case JSON_ARRAY:
-      case JSON_OBJECT: {
-        tmp = json_dumps(j_val, JSON_ENCODE_ANY);
-        tmp_sqlite_buf = sqlite3_mprintf("%q", tmp);
-        sfree(tmp);
+			// false
+			case AST_JSON_FALSE: {
+				ast_asprintf(&tmp_sub, "\"%s\"", "false");
+			}
+			break;
 
-        ast_asprintf(&tmp_sub, "'%s'", tmp_sqlite_buf);
-        sqlite3_free(tmp_sqlite_buf);
-      }
-      break;
+			case AST_JSON_NULL: {
+				ast_asprintf(&tmp_sub, "%s", "null");
+			}
+			break;
 
-      // object
-      // array
-      default: {
-        // Not done yet.
+			case AST_JSON_ARRAY:
+			case AST_JSON_OBJECT: {
+				tmp = ast_json_dump_string_format(j_val, AST_JSON_COMPACT);
+				tmp_sqlite_buf = sqlite3_mprintf("%q", tmp);
+				sfree(tmp);
 
-        // we don't support another types.
-        ast_log(LOG_WARNING, "Wrong type input. We don't handle this.\n");
-        ast_asprintf(&tmp_sub, "\"%s\"", "null");
-      }
-      break;
-    }
+				ast_asprintf(&tmp_sub, "'%s'", tmp_sqlite_buf);
+				sqlite3_free(tmp_sqlite_buf);
+			}
+			break;
 
-    if(sql_values == NULL) {
-      ast_asprintf(&tmp, "%s", tmp_sub);
-    }
-    else {
-      ast_asprintf(&tmp, "%s, %s", sql_values, tmp_sub);
-    }
-    sfree(tmp_sub);
-    sfree(sql_values);
-    sql_values = ast_strdup(tmp);
-    sfree(tmp);
-  }
-  json_decref(j_data_cp);
+			// object
+			// array
+			default: {
+				// Not done yet.
 
-  if(replace == true) {
-    ast_asprintf(&sql, "insert or replace into %s(%s) values (%s);", table, sql_keys, sql_values);
-  }
-  else {
-    ast_asprintf(&sql, "insert into %s(%s) values (%s);", table, sql_keys, sql_values);
-  }
-  sfree(sql_keys);
-  sfree(sql_values);
+				// we don't support another types.
+				ast_log(LOG_WARNING, "Wrong type input. We don't handle this.\n");
+				ast_asprintf(&tmp_sub, "\"%s\"", "null");
+			}
+			break;
+			}
 
-  ret = db_ctx_exec(ctx, sql);
-  sfree(sql);
-  if(ret == false) {
-    ast_log(LOG_ERROR, "Could not insert data.\n");
-    return false;
-  }
+		if(sql_values == NULL) {
+			ast_asprintf(&tmp, "%s", tmp_sub);
+		}
+		else {
+			ast_asprintf(&tmp, "%s, %s", sql_values, tmp_sub);
+		}
+		sfree(tmp_sub);
+		sfree(sql_values);
+		sql_values = ast_strdup(tmp);
+		sfree(tmp);
 
-  return true;
+		iter = ast_json_object_iter_next(j_data_cp, iter);
+	}
+	ast_json_unref(j_data_cp);
+
+	if(replace == true) {
+		ast_asprintf(&sql, "insert or replace into %s(%s) values (%s);", table, sql_keys, sql_values);
+	}
+	else {
+		ast_asprintf(&sql, "insert into %s(%s) values (%s);", table, sql_keys, sql_values);
+	}
+	sfree(sql_keys);
+	sfree(sql_values);
+
+	ret = db_ctx_exec(ctx, sql);
+	sfree(sql);
+	if(ret == false) {
+		ast_log(LOG_ERROR, "Could not insert data.\n");
+		return false;
+	}
+
+	return true;
 }
 
 /**
@@ -550,276 +560,185 @@ static bool db_ctx_insert_basic(db_ctx_t* ctx, const char* table, const json_t* 
  * @param j_data
  * @return
  */
-char* db_ctx_get_update_str(const json_t* j_data)
+char* db_ctx_get_update_str(const struct ast_json* j_data)
 {
-  char*   res;
-  char*   tmp;
-  char*   tmp_sub;
-  char*   tmp_sqlite_buf;
-  json_t*  j_val;
-  json_t*  j_data_cp;
-  const char* key;
-  bool        is_first;
-  json_type   type;
+	char*   res;
+	char*   tmp;
+	char*   tmp_sub;
+	char*   tmp_sqlite_buf;
+	struct ast_json*  j_val;
+	struct ast_json*  j_data_cp;
+	const char* key;
+	bool        is_first;
+	enum ast_json_type   type;
+	struct ast_json_iter* iter;
 
-  // copy original data.
-  j_data_cp = json_deep_copy(j_data);
+	// copy original data.
+	j_data_cp = ast_json_deep_copy(j_data);
 
-  is_first = true;
-  res = NULL;
-  tmp = NULL;
-  tmp_sub = NULL;
+	is_first = true;
+	res = NULL;
+	tmp = NULL;
+	tmp_sub = NULL;
 
-  json_object_foreach(j_data_cp, key, j_val) {
+	iter = ast_json_object_iter(j_data_cp);
 
-    // create update string
-    type = json_typeof(j_val);
-    switch(type) {
-      // string
-      case JSON_STRING: {
-        ast_asprintf(&tmp_sub, "%s = \'%s\'", key, json_string_value(j_val));
-      }
-      break;
+	while(1) {
+		if(iter == NULL) {
+			break;
+		}
 
-      // numbers
-      case JSON_INTEGER: {
-        ast_asprintf(&tmp_sub, "%s = %lld", key, json_integer_value(j_val));
-      }
-      break;
+		key = ast_json_object_iter_key(iter);
+		j_val = ast_json_object_iter_value(iter);
 
-      case JSON_REAL: {
-        ast_asprintf(&tmp_sub, "%s = %lf", key, json_real_value(j_val));
-      }
-      break;
+		// create update string
+		type = ast_json_typeof(j_val);
+		switch(type) {
+			// string
+			case AST_JSON_STRING: {
+				ast_asprintf(&tmp_sub, "%s = \'%s\'", key, ast_json_string_get(j_val));
+			}
+			break;
 
-      // true
-      case JSON_TRUE: {
-        ast_asprintf(&tmp_sub, "%s = \"%s\"", key, "true");
-      }
-      break;
+			// numbers
+			case AST_JSON_INTEGER: {
+				ast_asprintf(&tmp_sub, "%s = %ld", key, ast_json_integer_get(j_val));
+			}
+			break;
 
-      // false
-      case JSON_FALSE: {
-        ast_asprintf(&tmp_sub, "%s = \"%s\"", key, "false");
-      }
-      break;
+			case AST_JSON_REAL: {
+				ast_asprintf(&tmp_sub, "%s = %lf", key, ast_json_real_get(j_val));
+			}
+			break;
 
-      case JSON_NULL: {
-        ast_asprintf(&tmp_sub, "%s = %s", key, "null");
-      }
-      break;
+			// true
+			case AST_JSON_TRUE: {
+				ast_asprintf(&tmp_sub, "%s = \"%s\"", key, "true");
+			}
+			break;
 
-      case JSON_ARRAY:
-      case JSON_OBJECT: {
-        tmp = json_dumps(j_val, JSON_ENCODE_ANY);
-        tmp_sqlite_buf = sqlite3_mprintf("%q", tmp);
-        sfree(tmp);
+			// false
+			case AST_JSON_FALSE: {
+				ast_asprintf(&tmp_sub, "%s = \"%s\"", key, "false");
+			}
+			break;
 
-        ast_asprintf(&tmp_sub, "%s = '%s'", key, tmp_sqlite_buf);
-        sqlite3_free(tmp_sqlite_buf);
-      }
-      break;
+			case AST_JSON_NULL: {
+				ast_asprintf(&tmp_sub, "%s = %s", key, "null");
+			}
+			break;
 
-      default: {
-        // Not done yet.
-        // we don't support another types.
-        ast_log(LOG_WARNING, "Wrong type input. We don't handle this.\n");
-        ast_asprintf(&tmp_sub, "%s = %s", key, "null");
-      }
-      break;
-    }
+			case AST_JSON_ARRAY:
+			case AST_JSON_OBJECT: {
+				tmp = ast_json_dump_string(j_val);
+				tmp_sqlite_buf = sqlite3_mprintf("%q", tmp);
+				sfree(tmp);
 
-    // copy/set previous sql.
-    sfree(tmp);
-    if(is_first == true) {
-      ast_asprintf(&tmp, "%s", tmp_sub);
-      is_first = false;
-    }
-    else {
-      ast_asprintf(&tmp, "%s, %s", res, tmp_sub);
-    }
-    sfree(res);
-    sfree(tmp_sub);
+				ast_asprintf(&tmp_sub, "%s = '%s'", key, tmp_sqlite_buf);
+				sqlite3_free(tmp_sqlite_buf);
+			}
+			break;
 
-    res = ast_strdup(tmp);
-    sfree(tmp);
-  }
-  json_decref(j_data_cp);
+			default: {
+				// Not done yet.
+				// we don't support another types.
+				ast_log(LOG_WARNING, "Wrong type input. We don't handle this.\n");
+				ast_asprintf(&tmp_sub, "%s = %s", key, "null");
+			}
+			break;
+		}
 
-  return res;
-}
+		// copy/set previous sql.
+		sfree(tmp);
+		if(is_first == true) {
+			ast_asprintf(&tmp, "%s", tmp_sub);
+			is_first = false;
+		}
+		else {
+			ast_asprintf(&tmp, "%s, %s", res, tmp_sub);
+		}
+		sfree(res);
+		sfree(tmp_sub);
 
-/*
- * Return the condition string for given data.
- */
-char* db_ctx_get_condition_str(const json_t* j_data)
-{
-  char*   res;
-  char*   tmp;
-  char*   tmp_sub;
-  char*   tmp_sqlite_buf;
-  json_t*  j_val;
-  json_t*  j_data_cp;
-  const char* key;
-  bool        is_first;
-  json_type   type;
+		res = ast_strdup(tmp);
+		sfree(tmp);
 
-  // copy original data.
-  j_data_cp = json_deep_copy(j_data);
-
-  is_first = true;
-  res = NULL;
-  tmp = NULL;
-  tmp_sub = NULL;
-
-  json_object_foreach(j_data_cp, key, j_val) {
-
-    // create update string
-    type = json_typeof(j_val);
-    switch(type) {
-      // string
-      case JSON_STRING: {
-        ast_asprintf(&tmp_sub, "%s = \'%s\'", key, json_string_value(j_val));
-      }
-      break;
-
-      // numbers
-      case JSON_INTEGER: {
-        ast_asprintf(&tmp_sub, "%s = %lld", key, json_integer_value(j_val));
-      }
-      break;
-
-      case JSON_REAL: {
-        ast_asprintf(&tmp_sub, "%s = %lf", key, json_real_value(j_val));
-      }
-      break;
-
-      // true
-      case JSON_TRUE: {
-        ast_asprintf(&tmp_sub, "%s = \"%s\"", key, "true");
-      }
-      break;
-
-      // false
-      case JSON_FALSE: {
-        ast_asprintf(&tmp_sub, "%s = \"%s\"", key, "false");
-      }
-      break;
-
-      case JSON_NULL: {
-        ast_asprintf(&tmp_sub, "%s = %s", key, "null");
-      }
-      break;
-
-      case JSON_ARRAY:
-      case JSON_OBJECT: {
-        tmp = json_dumps(j_val, JSON_ENCODE_ANY);
-        tmp_sqlite_buf = sqlite3_mprintf("%q", tmp);
-        sfree(tmp);
-
-        ast_asprintf(&tmp_sub, "%s = '%s'", key, tmp_sqlite_buf);
-        sqlite3_free(tmp_sqlite_buf);
-      }
-      break;
-
-      default: {
-        // Not done yet.
-        // we don't support another types.
-        ast_log(LOG_WARNING, "Wrong type input. We don't handle this.\n");
-        ast_asprintf(&tmp_sub, "%s = %s", key, "null");
-      }
-      break;
-    }
-
-    // copy/set previous sql.
-    sfree(tmp);
-    if(is_first == true) {
-      ast_asprintf(&tmp, "%s", tmp_sub);
-      is_first = false;
-    }
-    else {
-      ast_asprintf(&tmp, "%s and %s", res, tmp_sub);
-    }
-    sfree(res);
-    sfree(tmp_sub);
-
-    res = ast_strdup(tmp);
-    sfree(tmp);
-  }
-  json_decref(j_data_cp);
+		iter = ast_json_object_iter_next(j_data_cp, iter);
+	}
+	ast_json_unref(j_data_cp);
 
   return res;
 }
 
 bool db_ctx_backup(db_ctx_t* ctx, const char *filename)
 {
-  int ret;
-  sqlite3* db;
-  sqlite3_backup* backup;
+	int ret;
+	sqlite3* db;
+	sqlite3_backup* backup;
 
-  if((ctx == NULL) || (filename == NULL)) {
-  	ast_log(LOG_WARNING, "Wrong input parameter.\n");
-  	return false;
-  }
+	if((ctx == NULL) || (filename == NULL)) {
+		ast_log(LOG_WARNING, "Wrong input parameter.\n");
+		return false;
+	}
 
-  /* Open the database file identified by zFilename. */
-  ret = sqlite3_open(filename, &db);
-  if(ret != SQLITE_OK) {
-  	return false;
-  }
+	/* Open the database file identified by zFilename. */
+	ret = sqlite3_open(filename, &db);
+	if(ret != SQLITE_OK) {
+		return false;
+	}
 
-  backup = sqlite3_backup_init(db, "main", ctx->db, "main");
-  if(backup == NULL) {
-  	ast_log(LOG_WARNING, "Could not initiate backup database.\n");
-  	return false;
-  }
+	backup = sqlite3_backup_init(db, "main", ctx->db, "main");
+	if(backup == NULL) {
+		ast_log(LOG_WARNING, "Could not initiate backup database.\n");
+		return false;
+	}
 
-  while(1) {
-  	ret = sqlite3_backup_step(backup, 5);
-  	if(ret == SQLITE_DONE) {
-  		break;
-  	}
+	while(1) {
+		ret = sqlite3_backup_step(backup, 5);
+		if(ret == SQLITE_DONE) {
+			break;
+		}
 
-  	if((ret != SQLITE_OK) && (ret != SQLITE_BUSY) && (ret != SQLITE_LOCKED)) {
-  		ast_log(LOG_ERROR, "Could not backup the database. ret[%d]\n", ret);
-  		break;
-  	}
+		if((ret != SQLITE_OK) && (ret != SQLITE_BUSY) && (ret != SQLITE_LOCKED)) {
+			ast_log(LOG_ERROR, "Could not backup the database. ret[%d]\n", ret);
+			break;
+		}
 
-  	// if database is busy or locked, just sleep.
-  	if((ret == SQLITE_BUSY) || (ret == SQLITE_LOCKED)) {
-  		sqlite3_sleep(250);
-  	}
-  }
+		// if database is busy or locked, just sleep.
+		if((ret == SQLITE_BUSY) || (ret == SQLITE_LOCKED)) {
+			sqlite3_sleep(100);
+		}
+	}
 
-  sqlite3_backup_finish(backup);
-  sqlite3_close(db);
+	sqlite3_backup_finish(backup);
+	sqlite3_close(db);
 
-  return true;
+	return true;
 }
 
 bool db_ctx_load_db_schema(db_ctx_t* ctx, const char* filename)
 {
-  int ret;
-  sqlite3* budb;
+	int ret;
+	sqlite3* budb;
 
-  if((ctx == NULL) || (filename == NULL)) {
-  	ast_log(LOG_WARNING, "Wrong input parameter.\n");
-  	return false;
-  }
+	if((ctx == NULL) || (filename == NULL)) {
+		ast_log(LOG_WARNING, "Wrong input parameter.\n");
+		return false;
+	}
 
-  ret = sqlite3_open(filename, &budb);
-  if(ret != SQLITE_OK) {
-  	ast_log(LOG_ERROR, "Could not open the database.\n");
-  	return false;
-  }
+	ret = sqlite3_open(filename, &budb);
+	if(ret != SQLITE_OK) {
+		ast_log(LOG_ERROR, "Could not open the database.\n");
+		return false;
+	}
 
-  // Create the in-memory schema from the backup
-  sqlite3_exec(budb, "BEGIN", NULL, NULL, NULL);
-  sqlite3_exec(budb, "SELECT sql FROM sqlite_master WHERE sql NOT NULL", &process_ddl_row, ctx->db, NULL);
-  sqlite3_exec(budb, "COMMIT", NULL, NULL, NULL);
-  sqlite3_close(budb);
+	// Create the in-memory schema from the backup
+	sqlite3_exec(budb, "BEGIN", NULL, NULL, NULL);
+	sqlite3_exec(budb, "SELECT sql FROM sqlite_master WHERE sql NOT NULL", &process_ddl_row, ctx->db, NULL);
+	sqlite3_exec(budb, "COMMIT", NULL, NULL, NULL);
+	sqlite3_close(budb);
 
-  return true;
+	return true;
 }
 
 /**
@@ -830,26 +749,26 @@ bool db_ctx_load_db_schema(db_ctx_t* ctx, const char* filename)
  */
 bool db_ctx_load_db_data(db_ctx_t* ctx, const char* filename)
 {
-  char* sql;
+	char* sql;
 
-  if((ctx == NULL) || (filename == NULL)) {
-  	ast_log(LOG_WARNING, "Wrong input parameter.\n");
-  	return false;
-  }
+	if((ctx == NULL) || (filename == NULL)) {
+		ast_log(LOG_WARNING, "Wrong input parameter.\n");
+		return false;
+	}
 
-  // Attach the backup to the in memory
-  sql = sqlite3_mprintf("ATTACH DATABASE '%s' as backup", filename);
-  sqlite3_exec(ctx->db, sql, NULL, NULL, NULL);
-  sqlite3_free(sql);
+	// Attach the backup to the in memory
+	sql = sqlite3_mprintf("ATTACH DATABASE '%s' as backup", filename);
+	sqlite3_exec(ctx->db, sql, NULL, NULL, NULL);
+	sqlite3_free(sql);
 
-  // Copy the data from the backup to the in memory
-  sqlite3_exec(ctx->db, "BEGIN", NULL, NULL, NULL);
-  sqlite3_exec(ctx->db, "SELECT name FROM backup.sqlite_master WHERE type='table'", &process_dml_row, ctx->db, NULL);
-  sqlite3_exec(ctx->db, "COMMIT", NULL, NULL, NULL);
+	// Copy the data from the backup to the in memory
+	sqlite3_exec(ctx->db, "BEGIN", NULL, NULL, NULL);
+	sqlite3_exec(ctx->db, "SELECT name FROM backup.sqlite_master WHERE type='table'", &process_dml_row, ctx->db, NULL);
+	sqlite3_exec(ctx->db, "COMMIT", NULL, NULL, NULL);
 
-  sqlite3_exec(ctx->db, "DETACH DATABASE backup", NULL, NULL, NULL);
+	sqlite3_exec(ctx->db, "DETACH DATABASE backup", NULL, NULL, NULL);
 
-  return true;
+	return true;
 }
 
 /**
@@ -860,28 +779,28 @@ bool db_ctx_load_db_data(db_ctx_t* ctx, const char* filename)
  */
 bool db_ctx_load_db_all(db_ctx_t* ctx, const char* filename)
 {
-  int ret;
+	int ret;
 
-  if((ctx == NULL) || (filename == NULL)) {
-  	ast_log(LOG_WARNING, "Wrong input parameter.\n");
-  	return false;
-  }
+	if((ctx == NULL) || (filename == NULL)) {
+		ast_log(LOG_WARNING, "Wrong input parameter.\n");
+		return false;
+	}
 
-  // load schema
-  ret = db_ctx_load_db_schema(ctx, filename);
-  if(ret == false) {
-    ast_log(LOG_ERROR, "Could not load db scema.\n");
-    return false;
-  }
+	// load schema
+	ret = db_ctx_load_db_schema(ctx, filename);
+	if(ret == false) {
+		ast_log(LOG_ERROR, "Could not load db scema.\n");
+		return false;
+	}
 
-  // load data
-  ret = db_ctx_load_db_data(ctx, filename);
-  if(ret == false) {
-    ast_log(LOG_ERROR, "Could not load db scema.\n");
-    return false;
-  }
+	// load data
+	ret = db_ctx_load_db_data(ctx, filename);
+	if(ret == false) {
+		ast_log(LOG_ERROR, "Could not load db scema.\n");
+		return false;
+	}
 
-  return true;
+	return true;
 }
 
 /**

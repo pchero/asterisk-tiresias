@@ -8,10 +8,10 @@
 #ifndef SRC_APP_TIRESIAS_H_
 #define SRC_APP_TIRESIAS_H_
 
-#include <jansson.h>
+#include <asterisk/json.h>
 
 typedef struct _app {
-	json_t*   j_conf;	///< config
+	struct ast_json*   j_conf;	///< config
 } app;
 
 extern app* g_app;

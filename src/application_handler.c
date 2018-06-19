@@ -65,7 +65,7 @@ static int tiresias_exec(struct ast_channel *chan, const char *data)
 	int duration;
 	struct ast_filestream* file;
 	double tolerance;
-	json_t* j_fp;
+	struct ast_json* j_fp;
 
 	AST_DECLARE_APP_ARGS(args,
 		AST_APP_ARG(context);
@@ -96,7 +96,7 @@ static int tiresias_exec(struct ast_channel *chan, const char *data)
 	}
 
 	tolerance = -1;
-	tmp_const = json_string_value(json_object_get(json_object_get(g_app->j_conf, "global"), "tolerance"));
+	tmp_const = ast_json_string_get(ast_json_object_get(ast_json_object_get(g_app->j_conf, "global"), "tolerance"));
 	if(tmp_const != NULL) {
 		tolerance = atof(tmp_const);
 	}
@@ -159,18 +159,18 @@ static int tiresias_exec(struct ast_channel *chan, const char *data)
 	pbx_builtin_setvar_helper(chan, "TIRSTATUS", "FOUND");
 
 	/* TIRFRAMECOUNT */
-	ret = json_integer_value(json_object_get(j_fp, "frame_count"));
+	ret = ast_json_integer_get(ast_json_object_get(j_fp, "frame_count"));
 	ast_asprintf(&tmp, "%d", ret);
 	pbx_builtin_setvar_helper(chan, "TIRFRAMECOUNT", tmp);
 	sfree(tmp);
 
 	/* TIRMATCHCOUNT */
-	ret = json_integer_value(json_object_get(j_fp, "match_count"));
+	ret = ast_json_integer_get(ast_json_object_get(j_fp, "match_count"));
 	ast_asprintf(&tmp, "%d", ret);
 	pbx_builtin_setvar_helper(chan, "TIRMATCHCOUNT", tmp);
 	sfree(tmp);
 
-	json_decref(j_fp);
+	ast_json_unref(j_fp);
 
 	return 0;
 }
