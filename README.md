@@ -1,5 +1,9 @@
 # asterisk-tiresias
-Audio fingerprinting and recognition module for the Asterisk
+Audio fingerprinting and recognition module for the Asterisk.
+
+## Features
+* Dialplan application
+* CLI operation
 
 ## Manual
 * https://asterisk-tiresias.readthedocs.io/en/latest/index.html
