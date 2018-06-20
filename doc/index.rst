@@ -10,7 +10,13 @@ Contents:
 
 .. toctree::
    :maxdepth: 2
-
+   
+   glossary
+   intro
+   installation
+   configuration
+   dialplan_application
+   cli_operation
 
 
 Indices and tables

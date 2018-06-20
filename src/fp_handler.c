@@ -30,10 +30,10 @@
 #define DEF_DATABASE_NAME			":memory:"
 #define DEF_BACKUP_DATABASE			"/var/lib/asterisk/third-party/tiresias/audio_recongition.db"
 
-//#define DEF_AUBIO_HOPSIZE		256
-//#define DEF_AUBIO_BUFSIZE		512
-#define DEF_AUBIO_HOPSIZE		512
-#define DEF_AUBIO_BUFSIZE		1024
+#define DEF_AUBIO_HOPSIZE		256
+#define DEF_AUBIO_BUFSIZE		512
+//#define DEF_AUBIO_HOPSIZE		512
+//#define DEF_AUBIO_BUFSIZE		1024
 #define DEF_AUBIO_SAMPLERATE	0		// read samplerate from the file
 #define DEF_AUBIO_FILTER		40
 #define DEF_AUBIO_COEFS			2
@@ -49,7 +49,6 @@ static bool init_database(void);
 static int create_audio_list_info(const char* context, const char* filename, const char* uuid);
 static bool create_audio_fingerprint_info(const char* context, const char* filename, const char* uuid);
 static struct ast_json* create_audio_fingerprints(const char* filename, const char* uuid);
-static bool insert_audio_fingerprints(const char* context, const char* filename, const char* uuid);
 
 static struct ast_json* get_audio_list_info(const char* uuid);
 static struct ast_json* get_audio_list_info_by_context_and_hash(const char* context, const char* hash);
@@ -274,8 +273,6 @@ struct ast_json* fp_search_fingerprint_info(
 
 	// search
 	frame_count = ast_json_array_size(j_fprints);
-	int count = 0;
-
 	for(i = 0; i < frame_count; i++) {
 		j_tmp = ast_json_array_get(j_fprints, i);
 
@@ -315,9 +312,6 @@ struct ast_json* fp_search_fingerprint_info(
 		destroy_db_ctx(db_ctx);
 
 		sfree(sql);
-
-		ast_log(LOG_DEBUG, "Check count. count[%d]\n", count);
-		count++;
 	}
 	ast_json_unref(j_fprints);
 	ast_log(LOG_DEBUG, "Inserted search info.\n");

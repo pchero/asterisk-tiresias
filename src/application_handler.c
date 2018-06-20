@@ -189,7 +189,6 @@ static int record_voice(struct ast_filestream* file, struct ast_channel *chan, i
 	struct ast_frame* frame;
 	int ms;
 	int err;
-	int count;
 
 	if((file == NULL) || (chan == NULL) || (duration < 0)) {
 		ast_log(LOG_WARNING, "Wrong input parameter.\n");
@@ -199,19 +198,14 @@ static int record_voice(struct ast_filestream* file, struct ast_channel *chan, i
 	err = 0;
 	start = ast_tvnow();
 	frame = NULL;
-	count = 0;
 	while(1) {
-		ast_log(LOG_DEBUG, "Count[%d]\n", count);
-		count++;
 
 		ms = ast_remaining_ms(start, duration);
-		ast_log(LOG_DEBUG, "Remaining millisecond. ms[%d]\n", ms);
 		if(ms <= 0) {
 			break;
 		}
 
 		ms = ast_waitfor(chan, ms);
-		ast_log(LOG_DEBUG, "Check value. waitfor[%d]\n", ms);
 		if(ms < 0) {
 			break;
 		}
@@ -228,7 +222,6 @@ static int record_voice(struct ast_filestream* file, struct ast_channel *chan, i
 			err = 1;
 			break;
 		}
-		ast_log(LOG_DEBUG, "Check value. datalen[%d], samples[%d]\n", frame->datalen, frame->samples);
 
 		if(frame->frametype != AST_FRAME_VOICE) {
 			ast_log(LOG_DEBUG, "Check frame type. frame_type[%d]\n", frame->frametype);
