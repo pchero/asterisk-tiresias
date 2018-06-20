@@ -34,9 +34,9 @@ This application sets the following channel vairables
   TIRMATCHCOUNT
 
 * ``TIRSTATUS`` : This is the status of the voice recognition.
-: FOUND: Found the voice fingerprinting info from the context's audio list.
-: NOTFOUND: Could not find the voice fingerprinting info from the context's audio list.
-: HANGUP: The call has been hungup before complete the recognition.
+  * ``FOUND``: Found the voice fingerprinting info from the context's audio list.
+  * ``NOTFOUND``: Could not find the voice fingerprinting info from the context's audio list.
+  * ``HANGUP``: The call has been hungup before complete the recognition.
 * ``TIRFRAMECOUNT``: This is the value of the given channel's audio frame total count. It will be set only the TIRSTATUS is FOUND.
 * ``TIRMATCHCOUNT``: This is the value of matched count.
 
