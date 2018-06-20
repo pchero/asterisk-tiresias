@@ -5,7 +5,7 @@ Configuration
 *************
 The tiresias.conf consists of 2 parts. One is global, and the other is context.
 
-/etc/tiresias.conf
+/etc/asterisk/tiresias.conf
 ::
 
   [global]
