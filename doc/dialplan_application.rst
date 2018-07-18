@@ -39,6 +39,10 @@ This application sets the following channel vairables
     * ``HANGUP``: The call has been hungup before complete the recognition.
 * ``TIRFRAMECOUNT``: This is the value of the given channel's audio frame total count. It sets only when the TIRSTATUS is FOUND.
 * ``TIRMATCHCOUNT``: This is the value of matched count. It sets only when the TIRSTATUS is FOUND.
+* ``TIRCONTEXT``: This is the context name of the found voice recognition. This sets only when the TIRSTATUS is FOUND.
+* ``TIRFILENAME``: This is the file name of the found voice recognition. This sets only when the TIRSTATUS is FOUND.
+* ``TIRFILEHASH``: This is the file hash of the found voice recognition. This sets only when the TIRSTATUS is FOUND.
+* ``TIRFILEUUID``: This is the file uuid of the found voice recognition. This sets only when the TIRSTATUS is FOUND.
 
 Example
 -------
@@ -52,3 +56,7 @@ Example
   same=> n,NoOp(${TIRSTATUS})
   same=> n,NoOp(${TIRFRAMECOUNT})
   same=> n,NoOp(${TIRMATCHCOUNT})
+  same=> n,NoOp(${TIRCONTEXT})
+  same=> n,NoOp(${TIRFILENAME})
+  same=> n,NoOp(${TIRFILEHASH})
+  same=> n,NoOp(${TIRFILEUUID})
