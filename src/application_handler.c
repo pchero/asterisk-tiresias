@@ -170,6 +170,34 @@ static int tiresias_exec(struct ast_channel *chan, const char *data)
 	pbx_builtin_setvar_helper(chan, "TIRMATCHCOUNT", tmp);
 	sfree(tmp);
 
+	/* TIRFILEUUID */
+	tmp_const = ast_json_string_get(ast_json_object_get(j_fp, "uuid"));
+	if(tmp_const == NULL) {
+		ast_log(LOG_ERROR, "Could not get uuid info.\n");
+	}
+	pbx_builtin_setvar_helper(chan, "TIRFILEUUID", tmp_const? : "");
+
+	/* TIRFILENAME */
+	tmp_const = ast_json_string_get(ast_json_object_get(j_fp, "name"));
+	if(tmp_const == NULL) {
+		ast_log(LOG_ERROR, "Could not get name info.\n");
+	}
+	pbx_builtin_setvar_helper(chan, "TIRFILENAME", tmp_const? : "");
+
+	/* TIRCONTEXT */
+	tmp_const = ast_json_string_get(ast_json_object_get(j_fp, "context"));
+	if(tmp_const == NULL) {
+		ast_log(LOG_ERROR, "Could not get context info.\n");
+	}
+	pbx_builtin_setvar_helper(chan, "TIRCONTEXT", tmp_const? : "");
+
+	/* TIRFILEHASH */
+	tmp_const = ast_json_string_get(ast_json_object_get(j_fp, "hash"));
+	if(tmp_const == NULL) {
+		ast_log(LOG_ERROR, "Could not get hash info.\n");
+	}
+	pbx_builtin_setvar_helper(chan, "TIRFILEHASH", tmp_const? : "");
+
 	ast_json_unref(j_fp);
 
 	return 0;
