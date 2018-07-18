@@ -25,7 +25,14 @@ struct ast_json* fp_get_audio_lists_by_contextname(const char* name);
 bool fp_craete_audio_list_info(const char* context, const char* filename);
 bool fp_delete_audio_list_info(const char* uuid);
 
-struct ast_json* fp_search_fingerprint_info(const char* context, const char* filename, const int coefs, const double tolerance);
+struct ast_json* fp_search_fingerprint_info(
+		const char* context,
+		const char* filename,
+		const int coefs,
+		const double tolerance,
+		const int freq_ignore_low,
+		const int freq_ignore_high
+		);
 
 char* fp_generate_uuid(void);
 

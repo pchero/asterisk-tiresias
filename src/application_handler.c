@@ -37,6 +37,15 @@
 			<parameter name="duration">
 				<para>fingerprint duration</para>
 			</parameter>
+			<parameter name="tolerance">
+				<para>tolreance score</para>
+			</parameter>
+			<parameter name="freq_ignore_low">
+				<para>Ignore frequency low</para>
+			</parameter>
+			<parameter name="freq_ignore_high">
+				<para>Ignore frequency high</para>
+			</parameter>
 		</syntax>
 		<description>
 			<para>Fingerprint and audio recognise with the given seconds.</para>
@@ -66,22 +75,28 @@ static int tiresias_exec(struct ast_channel *chan, const char *data)
 	struct ast_filestream* file;
 	double tolerance;
 	struct ast_json* j_fp;
+	int freq_ignore_low;
+	int freq_ignore_high;
 
 	AST_DECLARE_APP_ARGS(args,
 		AST_APP_ARG(context);
 		AST_APP_ARG(duraion);
 		AST_APP_ARG(tolerance);
+		AST_APP_ARG(freq_ignore_low);
+		AST_APP_ARG(freq_ignore_high);
 	);
 
 	if (ast_strlen_zero(data) == 1) {
 		ast_log(LOG_WARNING, "TIRESIAS requires an argument.\n");
 		return -1;
 	}
+	ast_log(LOG_DEBUG, "Check value. data[%s]\n", data);
 
 	/* parse the args */
 	data_copy = ast_strdupa(data);
 	AST_STANDARD_APP_ARGS(args, data_copy);
 
+	/* get context */
 	ret = ast_strlen_zero(args.context);
 	if(ret == 1) {
 		ast_log(LOG_NOTICE, "Wrong context info.\n");
@@ -89,12 +104,14 @@ static int tiresias_exec(struct ast_channel *chan, const char *data)
 	}
 	context = args.context;
 
+	/* get duration */
 	duration = DEF_DURATION;
 	ret = ast_strlen_zero(args.duraion);
 	if(ret != 1) {
 		duration = atoi(args.duraion);
 	}
 
+	/* get tolerance */
 	tolerance = -1;
 	tmp_const = ast_json_string_get(ast_json_object_get(ast_json_object_get(g_app->j_conf, "global"), "tolerance"));
 	if(tmp_const != NULL) {
@@ -104,7 +121,25 @@ static int tiresias_exec(struct ast_channel *chan, const char *data)
 	if(ret != 1) {
 		tolerance = atof(args.tolerance);
 	}
-	ast_log(LOG_VERBOSE, "Application tiresias. context[%s], durtion[%d], tolerance[%f]\n", context, duration, tolerance);
+
+	/* get freq_ignore_low */
+	freq_ignore_low = -1;
+	ret = ast_strlen_zero(args.freq_ignore_low);
+	if(ret != 1) {
+		freq_ignore_low = atoi(args.freq_ignore_low);
+	}
+
+	/* get freq_ignore_high */
+	freq_ignore_high = -1;
+	ret = ast_strlen_zero(args.freq_ignore_high);
+	if(ret != 1) {
+		freq_ignore_high = atoi(args.freq_ignore_high);
+	}
+
+	/* check values */
+	ast_log(LOG_VERBOSE, "Application tiresias. context[%s], durtion[%d], tolerance[%f], freq_ignore_low[%d], freq_ignore_high[%d]\n",
+			context, duration, tolerance, freq_ignore_low, freq_ignore_high
+			);
 
 	ret = ast_channel_state(chan);
 	ast_log(LOG_VERBOSE, "Channel state. state[%d]\n", ret);
@@ -142,7 +177,7 @@ static int tiresias_exec(struct ast_channel *chan, const char *data)
 
 	/* do the fingerprinting and recognition */
 	ast_asprintf(&tmp, "%s.wav", filename);
-	j_fp = fp_search_fingerprint_info(context, tmp, 1, tolerance);
+	j_fp = fp_search_fingerprint_info(context, tmp, 1, tolerance, freq_ignore_low, freq_ignore_high);
 
 	/* delete file */
 	ast_filedelete(filename, NULL);

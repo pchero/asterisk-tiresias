@@ -17,11 +17,22 @@ Syntax
 
 ::
 
-  Tiresias(<contaxt name>,<duration>,[tolerance])
+  Tiresias(<contaxt name>,<duration>,[tolerance],[freq_ignore_low],[freq_ignore_high])
 
 * ``context name``: Context name.
 * ``duration``: Duration time(milliseconds).
 * ``tolerance``: Tolerance score.
+* ``freq_ignore_low``: frequency ignore low.
+* ``freq_ignore_high``: frequency ignore high.
+
+If the freq_ignore_low or freq_ignore_high sets, the frequency between freq_ignore_low and freq_ignore_high would be evaluated only.
+
+The valid frquency would be like the below.
+::
+
+  freq_ignore_low < frequency < freq_ignore_high
+
+
 
 Channel variables
 -----------------
@@ -32,6 +43,10 @@ This application sets the following channel vairables
   TIRSTATUS
   TIRFRAMECOUNT
   TIRMATCHCOUNT
+  TIRCONTEXT
+  TIRFILENAME
+  TIRFILEHASH
+  TIRFILEUUID
 
 * ``TIRSTATUS`` : This is the status of the voice recognition.
     * ``FOUND``: Found the voice fingerprinting info from the context's audio list.
