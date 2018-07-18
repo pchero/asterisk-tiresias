@@ -208,7 +208,9 @@ struct ast_json* fp_search_fingerprint_info(
 		const char* context,
 		const char* filename,
 		const int coefs,
-		const double tolerance
+		const double tolerance,
+		const int freq_ignore_low,
+		const int freq_ignore_high
 		)
 {
 	int ret;
@@ -226,12 +228,21 @@ struct ast_json* fp_search_fingerprint_info(
 	int j;
 	db_ctx_t* db_ctx;
 	double tole;
+	double freq;
+	double freq_tmp;
 
 	if((context == NULL) || (filename == NULL)) {
 		ast_log(LOG_WARNING, "Wrong input parameter.\n");
 		return NULL;
 	}
-	ast_log(LOG_DEBUG, "Fired fp_search_fingerprint_info. context[%s], filename[%s]\n", context, filename);
+	ast_log(LOG_DEBUG, "Fired fp_search_fingerprint_info. context[%s], filename[%s], coefs[%d], tolerance[%f], freq_ignore_low[%d], freq_ignore_high[%d]\n",
+			context,
+			filename,
+			coefs,
+			tolerance,
+			freq_ignore_low,
+			freq_ignore_high
+			);
 
 	if((coefs < 1) || (coefs > DEF_AUBIO_COEFS)) {
 		ast_log(LOG_WARNING, "Wrong coefs count. max[%d], coefs[%d]\n", DEF_AUBIO_COEFS, coefs);
@@ -276,12 +287,30 @@ struct ast_json* fp_search_fingerprint_info(
 	for(i = 0; i < frame_count; i++) {
 		j_tmp = ast_json_array_get(j_fprints, i);
 
+		freq = (int)ast_json_real_get(ast_json_object_get(j_tmp, "max1"));
+
+		/* validate frequency range */
+		if(freq_ignore_low > 0) {
+			freq_tmp = 10 * log10(freq_ignore_low);
+			if(freq < freq_tmp) {
+				/* ignore. frequency is too low */
+				continue;
+			}
+		}
+		if(freq_ignore_high > 0) {
+			freq_tmp = 10 * log10(freq_ignore_high);
+			if(freq > freq_tmp) {
+				/* ignore. frequency is too high */
+				continue;
+			}
+		}
+
 		ast_asprintf(&sql, "insert into %s select * from audio_fingerprint where "
 				" max1 >= %f "
 				" and max1 <= %f ",
 				tablename,
-				ast_json_real_get(ast_json_object_get(j_tmp, "max1")) - tole,
-				ast_json_real_get(ast_json_object_get(j_tmp, "max1")) + tole
+				freq - tole,
+				freq + tole
 				);
 
 
@@ -289,14 +318,32 @@ struct ast_json* fp_search_fingerprint_info(
 		for(j = 1; j < coefs; j++) {
 			ast_asprintf(&tmp_max, "max%d", j + 1);
 
+			freq = ast_json_real_get(ast_json_object_get(j_tmp, tmp_max));
+
+			/* validate frequency range */
+			if(freq_ignore_low > 0) {
+				freq_tmp = 10 * log10(freq_ignore_low);
+				if(freq < freq_tmp) {
+					/* ignore. frequency is too low */
+					continue;
+				}
+			}
+			if(freq_ignore_high > 0) {
+				freq_tmp = 10 * log10(freq_ignore_high);
+				if(freq > freq_tmp) {
+					/* ignore. frequency is too high */
+					continue;
+				}
+			}
+
 			ast_asprintf(&tmp, "%s and %s >= %f and %s <= %f",
 					sql,
 
 					tmp_max,
-					ast_json_real_get(ast_json_object_get(j_tmp, tmp_max)) - tole,
+					freq - tole,
 
 					tmp_max,
-					ast_json_real_get(ast_json_object_get(j_tmp, tmp_max)) + tole
+					freq + tole
 					);
 			sfree(tmp_max);
 			sfree(sql);
