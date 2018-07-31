@@ -1108,6 +1108,23 @@ char* fp_generate_uuid(void)
 	return res;
 }
 
+char* fp_create_hash(const char* filename)
+{
+	char* res;
+
+	if(filename == NULL) {
+		ast_log(LOG_WARNING, "Wrong input parameter.\n");
+		return NULL;
+	}
+
+	res = create_file_hash(filename);
+	if(res == NULL) {
+		return NULL;
+	}
+
+	return res;
+}
+
 /**
  * Copy the given str and replace given org character to target character from str.
  * Return string should be freed after use it.
