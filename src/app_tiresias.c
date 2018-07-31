@@ -56,6 +56,10 @@ static bool init_audio(void);
 
 static bool term(void);
 
+static bool create_new_audio_info(struct ast_json* j_context);
+static bool delete_removed_audio_info(struct ast_json* j_context);
+
+
 static int file_select(const struct dirent *entry);
 
 
@@ -320,16 +324,11 @@ static bool init_context(void)
 static bool init_audio(void)
 {
 	int ret;
-	int i;
-	int count;
-	struct dirent **namelist;
-	char* tmp;
-	const char* context_name;
-	const char* directory;
+	int idx;
 	struct ast_json* j_contexts;
 	struct ast_json* j_context;
-	int idx;
 
+	// get all context info
 	j_contexts = fp_get_context_lists_all();
 	if(j_contexts == NULL) {
 		ast_log(LOG_NOTICE, "Could not get context_lists info correctly.\n");
@@ -343,49 +342,210 @@ static bool init_audio(void)
 			continue;
 		}
 
-		context_name = ast_json_string_get(ast_json_object_get(j_context, "name"));
-		if(context_name == NULL) {
-			ast_log(LOG_WARNING, "Could not context name info.\n");
-			continue;
+		ret = delete_removed_audio_info(j_context);
+		if(ret == false) {
+			ast_log(LOG_WARNING, "Could not delete removed audio info.\n");
 		}
 
-		/* get directory info */
-		directory = ast_json_string_get(ast_json_object_get(j_context, "directory"));
-		if(directory == NULL) {
-			ast_log(LOG_VERBOSE, "Could not get directory info. context[%s]\n", context_name);
-			continue;
+		ret = create_new_audio_info(j_context);
+		if(ret == false) {
+			ast_log(LOG_WARNING, "Could not create new audio info.\n");
 		}
-
-		/* get directory list info */
-		count = scandir(directory, &namelist, file_select, alphasort);
-		if(count < 0) {
-			ast_log(LOG_VERBOSE, "Could not get directory list info. context[%s]\n", context_name);
-			continue;
-		}
-
-		/* create fingerprint info for each item */
-		for(i = 0; i < count; i++) {
-
-			if(namelist[i]->d_name == NULL) {
-				ast_log(LOG_ERROR, "Could not get filename.\n");
-				continue;
-			}
-
-			/* create filename with path*/
-			ast_asprintf(&tmp, "%s/%s", directory, namelist[i]->d_name);
-			ast_log(LOG_VERBOSE, "Creating fingerprint info. filename[%s]\n", tmp);
-
-			/* create audio_list info */
-			ret = fp_craete_audio_list_info(context_name, tmp);
-			sfree(namelist[i]);
-			sfree(tmp);
-			if(ret == false) {
-				ast_log(LOG_VERBOSE, "Could not create fingerprint info.\n");
-				continue;
-			}
-		}
-		sfree(namelist);
 	}
+	ast_json_unref(j_contexts);
+
+	return true;
+}
+
+/**
+ * Create new audio info.
+ * @param j_context
+ * @return
+ */
+static bool create_new_audio_info(struct ast_json* j_context)
+{
+	const char* context_name;
+	const char* directory;
+	int count;
+	struct dirent **namelist;
+	int i;
+	int ret;
+	char* tmp;
+
+	if(j_context == NULL) {
+		ast_log(LOG_WARNING, "Wrong input parameter.\n");
+		return false;
+	}
+
+	context_name = ast_json_string_get(ast_json_object_get(j_context, "name"));
+	if(context_name == NULL) {
+		ast_log(LOG_WARNING, "Could not context name info.\n");
+		return false;
+	}
+
+	/* get directory info */
+	directory = ast_json_string_get(ast_json_object_get(j_context, "directory"));
+	if(directory == NULL) {
+		ast_log(LOG_VERBOSE, "Could not get directory info. context[%s]\n", context_name);
+		return false;
+	}
+
+	/* get directory list info */
+	count = scandir(directory, &namelist, file_select, alphasort);
+	if(count < 0) {
+		ast_log(LOG_VERBOSE, "Could not get directory list info. context[%s]\n", context_name);
+		return false;
+	}
+
+	/* create fingerprint info for each item */
+	for(i = 0; i < count; i++) {
+
+		if(namelist[i]->d_name == NULL) {
+			ast_log(LOG_ERROR, "Could not get filename.\n");
+			continue;
+		}
+
+		/* create filename with path*/
+		ast_asprintf(&tmp, "%s/%s", directory, namelist[i]->d_name);
+		ast_log(LOG_VERBOSE, "Creating fingerprint info. filename[%s]\n", tmp);
+
+		/* create audio_list info */
+		ret = fp_craete_audio_list_info(context_name, tmp);
+		sfree(namelist[i]);
+		sfree(tmp);
+		if(ret == false) {
+			ast_log(LOG_VERBOSE, "Could not create fingerprint info.\n");
+			continue;
+		}
+	}
+	sfree(namelist);
+
+	return true;
+}
+
+/**
+ * Delete not exist audio info.
+ * @param j_context
+ * @return
+ */
+static bool delete_removed_audio_info(struct ast_json* j_context)
+{
+	struct ast_json* j_audios;
+	struct ast_json* j_audio;
+	const char* context_name;
+	const char* directory;
+	int count;
+	char* hash;
+	char* tmp;
+	const char* tmp_const;
+	int i;
+	int idx;
+	int ret;
+	int found;
+	struct dirent **namelist;
+
+
+	if(j_context == NULL) {
+		ast_log(LOG_WARNING, "Wrong input parameter.\n");
+		return false;
+	}
+
+	context_name = ast_json_string_get(ast_json_object_get(j_context, "name"));
+	if(context_name == NULL) {
+		ast_log(LOG_WARNING, "Could not context name info.\n");
+		return true;
+	}
+
+	/* get audio files list */
+	j_audios = fp_get_audio_lists_by_contextname(context_name);
+	if(j_audios == NULL) {
+		// no delete-able audio files.
+		return true;
+	}
+
+	/* get directory info */
+	directory = ast_json_string_get(ast_json_object_get(j_context, "directory"));
+	if(directory == NULL) {
+		ast_log(LOG_VERBOSE, "Could not get directory info. context[%s]\n", context_name);
+		ast_json_unref(j_audios);
+		return true;;
+	}
+
+	/* get directory list info */
+	count = scandir(directory, &namelist, file_select, alphasort);
+	if(count < 0) {
+		ast_log(LOG_VERBOSE, "Could not get directory list info. context[%s]\n", context_name);
+		ast_json_unref(j_audios);
+		return true;
+	}
+
+	/* check the audio file is exist */
+	for(i = 0; i < count; i++) {
+
+		if(namelist[i]->d_name == NULL) {
+			ast_log(LOG_ERROR, "Could not get filename.\n");
+			continue;
+		}
+
+		/* create filename with path */
+		ast_asprintf(&tmp, "%s/%s", directory, namelist[i]->d_name);
+		ast_log(LOG_VERBOSE, "Creating hash info. filename[%s]\n", tmp);
+
+		/* create hash info */
+		hash = fp_create_hash(tmp);
+		if(hash == NULL) {
+			ast_log(LOG_ERROR, "Could not create hash info. filename[%s]\n", tmp);
+			sfree(tmp);
+			continue;
+		}
+
+		/* compare audio list */
+		found = false;
+		for(idx = 0; idx < ast_json_array_size(j_audios); idx++) {
+			j_audio = ast_json_array_get(j_audios, idx);
+			if(j_audio == NULL) {
+				continue;
+			}
+
+			tmp_const = ast_json_string_get(ast_json_object_get(j_audio, "hash"));
+			if(tmp_const == NULL) {
+				ast_log(LOG_DEBUG, "Coould not get hash info.\n");
+				continue;
+			}
+
+			ret = strcmp(tmp_const, hash);
+			if(ret == 0) {
+				found = true;
+				break;
+			}
+		}
+
+		/* if found it, remove from the array */
+		if(found == true) {
+			ast_json_array_remove(j_audios, idx);
+		}
+
+		sfree(namelist[i]);
+		sfree(tmp);
+	}
+	sfree(namelist);
+
+	/* delete audio info */
+	for(idx = 0; idx < ast_json_array_size(j_audios); idx++) {
+		j_audio = ast_json_array_get(j_audios, idx);
+
+		tmp_const = ast_json_string_get(ast_json_object_get(j_audio, "uuid"));
+		if(tmp_const == NULL) {
+			continue;
+		}
+
+		ret = fp_delete_audio_list_info(tmp_const);
+		if(ret == false) {
+			ast_log(LOG_DEBUG, "Could not delete audio list info.\n");
+			continue;
+		}
+	}
+	ast_json_unref(j_audios);
 
 	return true;
 }

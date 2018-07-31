@@ -35,5 +35,6 @@ struct ast_json* fp_search_fingerprint_info(
 		);
 
 char* fp_generate_uuid(void);
+char* fp_create_hash(const char* filename);
 
 #endif /* FP_HANDLER_H_ */
